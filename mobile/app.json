@@ -43,6 +43,13 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "fb7310ac-bf45-475f-b236-8c49b770808a"
+      }
+    },
+    "owner": "millionaire-club"
   }
 }
