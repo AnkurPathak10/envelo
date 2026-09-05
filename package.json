@@ -1,0 +1,8 @@
+{
+  "scripts": {
+    "dev": "concurrently -n backend,ngrok -c blue,green \"npm run dev --prefix backend\" \"ngrok http 3000 --url=https://saga-refusing-twins.ngrok-free.dev\""
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.5"
+  }
+}
