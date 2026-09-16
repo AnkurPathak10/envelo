@@ -1,29 +1,32 @@
 # UI Context
 
-> **Status: provisional.** Ankur and the assistant have not yet
-> had a dedicated UI discussion. The defaults below are a minimal,
-> sensible starting point (common for chat apps) so implementation
-> isn't blocked — revisit and confirm/override each section below.
-
 ## Theme
 
-Dark-first, minimal chat UI (WhatsApp/Telegram-style layout: chat
-list screen + conversation screen). Light mode not required for v1.
+Both light and dark mode are supported, following the device's
+system appearance setting (not a manual in-app toggle, unless
+Ankur decides to add one later). Chat-app layout: chat list screen
++ conversation screen.
 
 ## Colors
 
-Placeholder token set — confirm before building UI components.
+Color tokens as plain JS constants (React Native has no CSS engine
+— there is no equivalent of CSS custom properties/`globals.css`
+here). All components should import these from
+`mobile/constants/theme.ts` rather than hardcoding hex values.
 
-| Role            | CSS Variable       | Value         |
-| --------------- | ------------------- | ------------- |
-| Page background | `--bg-base`         | `#0B0F14`     |
-| Surface         | `--bg-surface`      | `#151A21`     |
-| Primary text    | `--text-primary`    | `#F5F7FA`     |
-| Muted text      | `--text-muted`      | `#8A93A2`     |
-| Primary accent  | `--accent-primary`  | `#2F80ED`     |
-| Border          | `--border-default`  | `#242B33`     |
-| Error           | `--state-error`     | `#E5484D`     |
-| Success         | `--state-success`   | `#30A46C`     |
+| Role            | Light      | Dark       |
+| ---------------- | ---------- | ---------- |
+| Page background   | `#FFFFFF`  | `#0B0F14`  |
+| Surface            | `#F5F7FA`  | `#151A21`  |
+| Primary text        | `#11181C`  | `#F5F7FA`  |
+| Muted text           | `#5B6572`  | `#8A93A2`  |
+| Primary accent        | `#2F80ED`  | `#2F80ED`  |
+| Border                  | `#E2E6EA`  | `#242B33`  |
+| Error                    | `#D93036`  | `#E5484D`  |
+| Success                   | `#1F9D5C`  | `#30A46C`  |
+
+(Light-mode values above are a reasonable first pass to match the
+dark palette's feel — revisit if they don't look right in practice.)
 
 ## Typography
 
@@ -42,10 +45,8 @@ Placeholder token set — confirm before building UI components.
 
 ## Component Library
 
-Not yet decided. Options to discuss:
-- Plain React Native `StyleSheet` (no dependency, full control)
-- NativeWind (Tailwind-style utility classes for React Native)
-- React Native Paper (Material Design component kit)
+Resolved in Feature 03: plain React Native `StyleSheet` — no
+NativeWind/React Native Paper dependency for now.
 
 ## Layout Patterns
 
@@ -54,17 +55,28 @@ Not yet decided. Options to discuss:
 - **Chat screen**: message bubbles (sender right-aligned/accent
   color, recipient left-aligned/surface color), input bar pinned
   to bottom, delivery/read tick icons on sent messages
-- **Navigation**: stack navigation (list → conversation), standard
-  header with back button
+- **Navigation**: Expo Router, file-based routing under `mobile/app/`
 
 ## Icons
 
-Not yet decided — likely `lucide-react-native` or
-`@expo/vector-icons` (bundled with Expo, no extra install).
+Resolved in Feature 03: `@expo/vector-icons` (bundled with Expo).
+
+## Theming Implementation Notes
+
+- `mobile/constants/theme.ts` exports a `colors` object for each
+  mode (`light` and `dark`), plus a `radius` object shared across
+  both.
+- Use React Native's `useColorScheme()` hook to detect the active
+  system mode and select the matching color set at the point each
+  screen builds its `StyleSheet.create()` — do not hardcode either
+  mode's values directly into a screen.
+- The old Expo-starter `theme.ts` (with `tabIconDefault`,
+  `tabIconSelected`, etc.) has been replaced — those tokens were
+  for the default tab-bar template, which this project doesn't use.
 
 ## Open Items to Discuss
 
-- Confirm color palette (or replace with Ankur's own preference)
-- Confirm component library choice
-- Confirm icon set
-- Decide on avatar/profile picture treatment
+- Light-mode color values above are a first pass, not confirmed
+  against an actual design — check how they look once screens are
+  refactored to use them
+- Confirm icon usage conventions (sizes) as more screens are built

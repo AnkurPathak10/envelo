@@ -66,3 +66,8 @@
   handling, event handlers, shared Prisma client)
 - `prisma/` — schema.prisma and migrations, shared by `backend/`
   and `socket-server/`
+
+
+ ## Formatting 
+ 
+ - All code must be formatted with Prettier before a feature is considered complete — run `npx prettier --write .` in the relevant folder (mobile/, backend/, or socket-server/) as the final step of implementation. - Do not write dense, unspaced, unindented code even as a draft — format as you go, not as an afterthought. 

@@ -4,11 +4,11 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
-- Backend Auth complete â€” ready to start Feature 03 (Mobile Auth UI)
+- Feature 03 implemented — pending manual real-device verification
 
 ## Current Goal
 
-- Implement mobile authentication UI in `mobile/` (Feature 03)
+- Manually verify the Feature 03 mobile authentication flow on Expo Go
 
 ## Completed
 
@@ -39,13 +39,21 @@ Update this file after every meaningful implementation change.
   - Verified all 8 test cases from `02-auth-backend.md` passing end-to-end against live database
   - `npm run build` succeeds cleanly with zero errors
 
+- Feature 03: Mobile Auth UI implemented in `mobile/`:
+  - Replaced the Expo starter routes with protected `(auth)` and `(app)` route groups.
+  - Added login, signup, and authenticated placeholder home screens using React Hook Form, Zod, and plain React Native `StyleSheet`.
+  - Added encrypted SecureStore storage for separate access and refresh tokens.
+  - Added an API client that attaches Bearer tokens, refreshes and retries a 401 request once, then clears the local session if refresh fails.
+  - Added `AuthContext` for silent session restoration, authenticated user state, and logout that clears storage even if the API call fails.
+  - Installed `expo-secure-store`, `react-hook-form`, `zod`, and `@hookform/resolvers`.
+  - Verified `npm run lint` and `npx tsc --noEmit` in `mobile/` pass.
 ## In Progress
 
-- None.
+- Feature 03 manual real-device verification (signup, persistent session refresh, logout, and backend error states).
 
 ## Next Up
 
-- Feature 03: Mobile Auth UI (screens, navigation, forms, SecureStore token management, API integration)
+- Feature 04: conversation list and REST API design, after Feature 03 is manually verified.
 
 ## Open Questions
 

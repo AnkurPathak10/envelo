@@ -1,53 +1,45 @@
 /**
- * Below are the colors that are used in the app. The colors are defined in the light and dark mode.
- * There are many other ways to style your app. For example, [Nativewind](https://www.nativewind.dev/), [Tamagui](https://tamagui.dev/), [unistyles](https://reactnativeunistyles.vercel.app), etc.
+ * Design tokens for Envelo (see ui-context.md).
+ * Plain JS constants, not CSS — React Native has no CSS engine,
+ * so these are imported directly into each screen's
+ * StyleSheet.create() calls instead of a shared stylesheet.
+ *
+ * Use the useColorScheme() hook from 'react-native' to pick the
+ * right set at the point a screen builds its styles, e.g.:
+ *
+ *   import { useColorScheme } from 'react-native';
+ *   import { colors } from '@/constants/theme';
+ *
+ *   const scheme = useColorScheme() ?? 'light';
+ *   const c = colors[scheme];
+ *   // then use c.bgBase, c.textPrimary, etc.
  */
 
-import { Platform } from 'react-native';
-
-const tintColorLight = '#0a7ea4';
-const tintColorDark = '#fff';
-
-export const Colors = {
+export const colors = {
   light: {
-    text: '#11181C',
-    background: '#fff',
-    tint: tintColorLight,
-    icon: '#687076',
-    tabIconDefault: '#687076',
-    tabIconSelected: tintColorLight,
+    bgBase: '#FFFFFF',
+    bgSurface: '#F5F7FA',
+    textPrimary: '#11181C',
+    textMuted: '#5B6572',
+    accentPrimary: '#2F80ED',
+    border: '#E2E6EA',
+    error: '#D93036',
+    success: '#1F9D5C',
   },
   dark: {
-    text: '#ECEDEE',
-    background: '#151718',
-    tint: tintColorDark,
-    icon: '#9BA1A6',
-    tabIconDefault: '#9BA1A6',
-    tabIconSelected: tintColorDark,
+    bgBase: '#0B0F14',
+    bgSurface: '#151A21',
+    textPrimary: '#F5F7FA',
+    textMuted: '#8A93A2',
+    accentPrimary: '#2F80ED',
+    border: '#242B33',
+    error: '#E5484D',
+    success: '#30A46C',
   },
 };
 
-export const Fonts = Platform.select({
-  ios: {
-    /** iOS `UIFontDescriptorSystemDesignDefault` */
-    sans: 'system-ui',
-    /** iOS `UIFontDescriptorSystemDesignSerif` */
-    serif: 'ui-serif',
-    /** iOS `UIFontDescriptorSystemDesignRounded` */
-    rounded: 'ui-rounded',
-    /** iOS `UIFontDescriptorSystemDesignMonospaced` */
-    mono: 'ui-monospace',
-  },
-  default: {
-    sans: 'normal',
-    serif: 'serif',
-    rounded: 'normal',
-    mono: 'monospace',
-  },
-  web: {
-    sans: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
-    serif: "Georgia, 'Times New Roman', serif",
-    rounded: "'SF Pro Rounded', 'Hiragino Maru Gothic ProN', Meiryo, 'MS PGothic', sans-serif",
-    mono: "SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
-  },
-});
+export const radius = {
+  sm: 8,
+  md: 16,
+  lg: 20,
+};
