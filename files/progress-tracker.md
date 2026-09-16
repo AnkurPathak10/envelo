@@ -4,7 +4,7 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
-- Feature 03 implemented � pending manual real-device verification
+- Feature 03 implemented - pending manual real-device verification
 
 ## Current Goal
 
@@ -39,14 +39,55 @@ Update this file after every meaningful implementation change.
   - Verified all 8 test cases from `02-auth-backend.md` passing end-to-end against live database
   - `npm run build` succeeds cleanly with zero errors
 
-- Feature 03: Mobile Auth UI implemented in `mobile/`:
-  - Replaced the Expo starter routes with protected `(auth)` and `(app)` route groups.
-  - Added login, signup, and authenticated placeholder home screens using React Hook Form, Zod, and plain React Native `StyleSheet`.
-  - Added encrypted SecureStore storage for separate access and refresh tokens.
-  - Added an API client that attaches Bearer tokens, refreshes and retries a 401 request once, then clears the local session if refresh fails.
-  - Added `AuthContext` for silent session restoration, authenticated user state, and logout that clears storage even if the API call fails.
-  - Installed `expo-secure-store`, `react-hook-form`, `zod`, and `@hookform/resolvers`.
-  - Verified `npm run lint` and `npx tsc --noEmit` in `mobile/` pass.
+- Feature 03: Mobile Auth UI implemented in `mobile/` (commit `6316fd1` — "Done auth screen UI"):
+
+  **Routing & Screens (Expo Router file-based routing):**
+  - Removed the Expo starter tab routes (`(tabs)/`, `modal.tsx`) and replaced with two protected route groups: `(auth)/` (unauthenticated) and `(app)/` (authenticated).
+  - `app/_layout.tsx` — Root layout using `Stack.Protected` guards based on `useAuth().user` to conditionally render auth vs app group. Wraps the tree in `ThemeProvider` and `AuthProvider`.
+  - `app/(auth)/login.tsx` — Login screen with email + password fields, form validation, API error display, and link to signup.
+  - `app/(auth)/signup.tsx` — Signup screen with display name, email, password fields, form validation, API error display, and link to login.
+  - `app/(app)/home.tsx` — Authenticated placeholder screen showing the user's display name and a logout button.
+
+  **Form Handling & Validation:**
+  - Uses `react-hook-form` with `@hookform/resolvers/zod` for declarative form state management.
+  - Zod schemas define validation rules (email format, password min length, display name trim + length limits).
+  - `Controller` components wire RN `TextInput` to react-hook-form, with per-field inline error messages.
+  - Server errors (e.g. duplicate email, wrong credentials) are caught from the API client and surfaced via `setError('root', ...)`.
+
+  **API Client (`mobile/lib/api/`):**
+  - `client.ts` — A `fetch`-based API client that auto-attaches Bearer access tokens from SecureStore, implements transparent 401 retry (calls `/auth/refresh` once with the stored refresh token, retries the original request on success, clears session on failure). Exports a typed `ApiError` class.
+  - `auth.ts` — Typed wrappers for all four auth endpoints (`signup`, `login`, `refresh`, `logout`), returning `{ user, accessToken, refreshToken }` payloads.
+
+  **Auth State Management (`mobile/lib/auth/`):**
+  - `storage.ts` — SecureStore helpers (`getTokens`, `saveTokens`, `clearTokens`) storing access and refresh tokens as separate encrypted keys via `expo-secure-store`.
+  - `AuthContext.tsx` — React context + provider that: restores session on mount by reading stored tokens and decoding the access token (or refreshing if expired), exposes `user`, `isLoading`, `signIn`, `signUp`, `signOut` to the entire app, and ensures logout always clears local storage even if the API call fails.
+
+  **Theme System (`mobile/constants/theme.ts`):**
+  - Replaced the Expo starter's `Colors` / `Fonts` exports (with keys like `tabIconDefault`, `tabIconSelected`, `icon`, `text`, `background`) with a new design-token-based `colors` object providing `light` and `dark` sub-objects.
+  - Tokens: `bgBase`, `bgSurface`, `textPrimary`, `textMuted`, `accentPrimary`, `border`, `error`, `success` — values match the palette in `ui-context.md`.
+  - Exports a shared `radius` object (`sm: 8`, `md: 16`, `lg: 20`).
+  - All screens use `useColorScheme()` from React Native to detect the device's system appearance and index into `colors[scheme]` at render time — no hardcoded hex values in any screen file.
+  - The `createStyles(c)` factory pattern is used consistently: a function that takes the resolved color set and returns `StyleSheet.create(...)`, called inside the component body after `useColorScheme()`.
+
+  **Theme Refactoring (legacy Expo starter components):**
+  - `components/themed-text.tsx` — Updated `useThemeColor` call from old `'text'` key to `'textPrimary'`; replaced hardcoded `#0a7ea4` link color with dynamic `useThemeColor({}, 'accentPrimary')`.
+  - `components/themed-view.tsx` — Updated to use `'bgBase'` token.
+  - `components/parallax-scroll-view.tsx` — Updated `useThemeColor` call from old `'background'` key to `'bgBase'`.
+  - `components/ui/collapsible.tsx` — Replaced old `Colors` (capital C) import with `colors` + `useColorScheme()` pattern; replaced `Colors.light.icon` / `Colors.dark.icon` with `c.textMuted`.
+  - `hooks/use-theme-color.ts` — Updated to work with the new `colors` shape (`keyof typeof colors.light`).
+
+  **Dependencies Added:**
+  - `expo-secure-store` — Encrypted key-value storage for auth tokens
+  - `react-hook-form` — Declarative form state management
+  - `@hookform/resolvers` — Zod resolver adapter for react-hook-form
+  - `zod` — Schema validation (already used in backend, now shared pattern)
+
+  **Verification:**
+  - `npx tsc --noEmit` passes with zero errors in `mobile/`
+  - `npm run lint` passes in `mobile/`
+  - No hardcoded hex color values remain in any `mobile/app/` screen
+  - No references to the old `Colors` / `Fonts` exports remain anywhere in `mobile/`
+
 ## In Progress
 
 - Feature 03 manual real-device verification (signup, persistent session refresh, logout, and backend error states).
@@ -57,8 +98,9 @@ Update this file after every meaningful implementation change.
 
 ## Open Questions
 
-- UI color palette, component library, and icon set not yet
-  confirmed (see `ui-context.md`)
+- ~~UI color palette, component library, and icon set not yet
+  confirmed~~ — Resolved: plain `StyleSheet` with design tokens
+  from `ui-context.md`, `@expo/vector-icons` for icons
 - Exact reconnection/offline-message-queue behavior for the
   Socket.io client not yet defined
 - Docker: Ankur wants to containerize `backend/` and
