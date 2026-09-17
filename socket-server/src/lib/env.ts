@@ -11,7 +11,7 @@ function readPort(value: string | undefined): number {
 }
 
 function readAccessSecret(value: string | undefined): string {
-  if (!value) throw new Error("JWT_ACCESS_SECRET must be set.");
+  if (!value?.trim()) throw new Error("JWT_ACCESS_SECRET must be set.");
   return value;
 }
 

@@ -118,6 +118,7 @@ Update this file after every meaningful implementation change.
   - Moved the Feature 04 Socket.io verification lifecycle into `mobile/lib/socket/useTemporarySocketTest.ts`, preserving the authenticated handshake, token-safe logging, temporary marker, and disconnect cleanup.
   - Configured the authenticated stack so Home keeps its custom header while New conversation receives the native title/back button with theme-aware header colors.
   - Formatted all Feature 06 files with Prettier. `npx tsc --noEmit` and `npm run lint` both pass with no errors or warnings; repository checks also confirm no hardcoded colors, direct SecureStore access, duplicate fetch wrapper, message fields, or socket message events were introduced in the Feature 06 files.
+  - Follow-up review fixes: capped search input at the API's 100-character maximum and separated search failures from conversation-creation failures, so the search retry action is never shown for a failed creation and users can retry creation by selecting the retained result again.
 
 ## In Progress
 

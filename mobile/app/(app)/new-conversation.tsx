@@ -31,7 +31,12 @@ export default function NewConversationScreen() {
   const [results, setResults] = useState<ConversationParticipant[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [creatingUserId, setCreatingUserId] = useState<string | null>(null);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [searchErrorMessage, setSearchErrorMessage] = useState<string | null>(
+    null
+  );
+  const [creationErrorMessage, setCreationErrorMessage] = useState<
+    string | null
+  >(null);
   const [searchVersion, setSearchVersion] = useState(0);
   const requestSequence = useRef(0);
   const isMounted = useRef(true);
@@ -50,13 +55,15 @@ export default function NewConversationScreen() {
     const sequence = ++requestSequence.current;
     if (!trimmedQuery) {
       setResults([]);
-      setErrorMessage(null);
+      setSearchErrorMessage(null);
+      setCreationErrorMessage(null);
       setIsSearching(false);
       return;
     }
 
     setResults([]);
-    setErrorMessage(null);
+    setSearchErrorMessage(null);
+    setCreationErrorMessage(null);
     setIsSearching(true);
 
     const timer = setTimeout(() => {
@@ -66,7 +73,7 @@ export default function NewConversationScreen() {
         })
         .catch((error: unknown) => {
           if (requestSequence.current === sequence)
-            setErrorMessage(getErrorMessage(error));
+            setSearchErrorMessage(getErrorMessage(error));
         })
         .finally(() => {
           if (requestSequence.current === sequence) setIsSearching(false);
@@ -81,12 +88,12 @@ export default function NewConversationScreen() {
 
   const chooseUser = useCallback(async (userId: string) => {
     setCreatingUserId(userId);
-    setErrorMessage(null);
+    setCreationErrorMessage(null);
     try {
       await createDirectConversation(userId);
       router.back();
     } catch (error) {
-      if (isMounted.current) setErrorMessage(getErrorMessage(error));
+      if (isMounted.current) setCreationErrorMessage(getErrorMessage(error));
     } finally {
       if (isMounted.current) setCreatingUserId(null);
     }
@@ -98,7 +105,7 @@ export default function NewConversationScreen() {
 
   const emptyMessage = !trimmedQuery
     ? 'Search for someone to start a conversation.'
-    : !isSearching && !errorMessage
+    : !isSearching && !searchErrorMessage
       ? 'No users found.'
       : null;
 
@@ -108,6 +115,7 @@ export default function NewConversationScreen() {
         autoCapitalize="none"
         autoCorrect={false}
         autoFocus
+        maxLength={100}
         onChangeText={setQuery}
         placeholder="Search by name or email"
         placeholderTextColor={c.textMuted}
@@ -123,18 +131,22 @@ export default function NewConversationScreen() {
         </View>
       ) : null}
 
-      {errorMessage ? (
+      {searchErrorMessage ? (
         <View style={styles.errorContainer}>
-          <Text style={styles.errorText}>{errorMessage}</Text>
-          {creatingUserId === null && trimmedQuery ? (
-            <Pressable
-              accessibilityRole="button"
-              onPress={retrySearch}
-              style={styles.retryButton}
-            >
-              <Text style={styles.retryText}>Try again</Text>
-            </Pressable>
-          ) : null}
+          <Text style={styles.errorText}>{searchErrorMessage}</Text>
+          <Pressable
+            accessibilityRole="button"
+            onPress={retrySearch}
+            style={styles.retryButton}
+          >
+            <Text style={styles.retryText}>Try again</Text>
+          </Pressable>
+        </View>
+      ) : null}
+
+      {creationErrorMessage ? (
+        <View style={styles.errorContainer}>
+          <Text style={styles.errorText}>{creationErrorMessage}</Text>
         </View>
       ) : null}
 
