@@ -6,7 +6,8 @@ import { prisma } from "@/lib/prisma";
 
 const ACCESS_SECRET = process.env.JWT_ACCESS_SECRET!;
 const REFRESH_SECRET = process.env.JWT_REFRESH_SECRET!;
-const ACCESS_EXPIRES_IN = (process.env.ACCESS_TOKEN_EXPIRES_IN ?? "15m") as SignOptions["expiresIn"];
+const ACCESS_EXPIRES_IN = (process.env.ACCESS_TOKEN_EXPIRES_IN ??
+  "15m") as SignOptions["expiresIn"];
 const REFRESH_EXPIRES_IN = process.env.REFRESH_TOKEN_EXPIRES_IN ?? "30d";
 
 // ── Access Token (JWT) ───────────────────────────────────────────
@@ -84,14 +85,10 @@ function parseDuration(duration: string): number {
  * Create a new refresh token in the database. Returns the raw token
  * (to send to the client) — only its HMAC hash is stored in the DB.
  */
-export async function createRefreshTokenInDb(
-  userId: string
-): Promise<string> {
+export async function createRefreshTokenInDb(userId: string): Promise<string> {
   const rawToken = generateRefreshToken();
   const tokenHash = hashRefreshToken(rawToken);
-  const expiresAt = new Date(
-    Date.now() + parseDuration(REFRESH_EXPIRES_IN)
-  );
+  const expiresAt = new Date(Date.now() + parseDuration(REFRESH_EXPIRES_IN));
 
   await prisma.refreshToken.create({
     data: {

@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
   if (!parsed.success) {
     return NextResponse.json(
       { error: parsed.error.issues[0]?.message ?? "Invalid input" },
-      { status: 400 }
+      { status: 400 },
     );
   }
 
@@ -52,7 +52,7 @@ export async function POST(request: NextRequest) {
   ) {
     return NextResponse.json(
       { error: INVALID_REFRESH_TOKEN_ERROR },
-      { status: 401 }
+      { status: 401 },
     );
   }
 

@@ -5,9 +5,16 @@ import { hashPassword } from "@/lib/auth/password";
 import { signAccessToken, createRefreshTokenInDb } from "@/lib/auth/tokens";
 
 const signupSchema = z.object({
-  email: z.string().email("Invalid email address").transform((val) => val.trim().toLowerCase()),
+  email: z
+    .string()
+    .email("Invalid email address")
+    .transform((val) => val.trim().toLowerCase()),
   password: z.string().min(8, "Password must be at least 8 characters long"),
-  displayName: z.string().trim().min(1, "Display name cannot be empty").max(100, "Display name is too long"),
+  displayName: z
+    .string()
+    .trim()
+    .min(1, "Display name cannot be empty")
+    .max(100, "Display name is too long"),
 });
 
 export async function POST(request: NextRequest) {
@@ -22,7 +29,7 @@ export async function POST(request: NextRequest) {
   if (!parsed.success) {
     return NextResponse.json(
       { error: parsed.error.issues[0]?.message ?? "Invalid input" },
-      { status: 400 }
+      { status: 400 },
     );
   }
 
@@ -35,7 +42,7 @@ export async function POST(request: NextRequest) {
   if (existingUser) {
     return NextResponse.json(
       { error: "An account with this email already exists" },
-      { status: 409 }
+      { status: 409 },
     );
   }
 
@@ -63,6 +70,6 @@ export async function POST(request: NextRequest) {
       refreshToken,
       user,
     },
-    { status: 201 }
+    { status: 201 },
   );
 }

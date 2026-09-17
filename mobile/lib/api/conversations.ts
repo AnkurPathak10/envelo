@@ -13,6 +13,19 @@ export interface ConversationListItem {
   participant: ConversationParticipant;
 }
 
+export interface TextMessage {
+  id: string;
+  conversationId: string;
+  senderId: string;
+  content: string | null;
+  createdAt: string;
+}
+
+export interface MessageHistoryPage {
+  messages: TextMessage[];
+  nextCursor: string | null;
+}
+
 interface ConversationListResponse {
   conversations: ConversationListItem[];
 }
@@ -58,4 +71,13 @@ export async function createDirectConversation(participantId: string): Promise<{
     }
   );
   return response.conversation;
+}
+
+export async function getMessageHistory(
+  conversationId: string,
+  cursor?: string
+): Promise<MessageHistoryPage> {
+  const path = `/api/conversations/${encodeURIComponent(conversationId)}/messages`;
+  const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : '';
+  return apiRequest<MessageHistoryPage>(`${path}${query}`);
 }

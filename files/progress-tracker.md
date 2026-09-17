@@ -4,11 +4,11 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
-- Features 03, 04, and 06 implemented - pending manual real-device verification; Features 05, 07, and 08 complete
+- Features 03, 04, 06, and 09 implemented - pending manual real-device verification; Features 05, 07, and 08 complete
 
 ## Current Goal
 
-- Add `DATABASE_URL` to the local socket-server environment, manually verify the existing Expo Go flows, then begin Feature 09 mobile chat and live text messaging
+- Configure the missing mobile/socket environment values and manually verify Feature 09 with two signed-in devices on the same network
 
 ## Completed
 
@@ -142,16 +142,29 @@ Update this file after every meaningful implementation change.
   - Verified `npm run build`, production generated-client loading, and `GET /health` (`{ "status": "ok" }`). A live Neon integration run with isolated temporary users exercised blank/oversized/missing payloads, invented and unauthorized conversations, sender/recipient/outsider room isolation, trimmed content, identical one-time broadcasts, durable IDs, `mediaUrl: null`, recipient `SENT`, recency updates, disconnected-recipient persistence, and Feature 07 history retrieval. Temporary test records were deleted afterward.
   - `npx prettier --write package.json src scripts` passes. Generated Prisma output and compiled `dist/` remain ignored, and no socket migration command, mobile change, or existing backend route change was introduced.
 
+- Feature 09: Mobile Chat Screen and Live Text Messaging implemented:
+  - Added the dynamic authenticated `conversation/[conversationId]` Expo Router route, registered it in the existing native stack, and used the display-only participant route parameter for the native header title with the standard platform back button.
+  - Made conversation rows accessible press targets that navigate with the server-owned conversation ID and participant display name. No participant name or route parameter is used for authorization or message data.
+  - Extended the existing conversation API module with the exact nullable `TextMessage` contract and a token-refreshing, URL-encoded Feature 07 history wrapper supporting optional cursors; no second fetch client or direct SecureStore access was introduced.
+  - Replaced and deleted the temporary Feature 04 socket hook with an app-level `SocketProvider` nested inside `AuthProvider`. It creates one typed Socket.IO client for the current in-memory access token, disables automatic reconnection for the documented v1 behavior, exposes typed send/subscription methods and connection state, and disconnects on token changes, sign-out, and unmount.
+  - Added timeout/disconnect-safe `message:send` acknowledgement handling. The composer retains its draft on a failure acknowledgement, timeout, or disconnect, clears only the submitted draft after success, disables Send for blank text, active sends, and disconnected sockets, and never creates optimistic or queued messages.
+  - Added pure message merging that filters nullable non-text history entries, de-duplicates REST history, socket broadcasts, and acknowledgements by durable ID, then sorts chronologically with ID as a stable tie-breaker. Initial and older-page responses merge into current state so in-flight live events cannot be overwritten.
+  - Added initial loading, retryable history error, safe 404/unavailable with Back, calm empty history, explicit cursor-based **Load earlier messages**, independent older-page error/loading, and disconnected/send-failure states. Loading an older page preserves the visible list position rather than jumping to the latest message.
+  - Added themed incoming/outgoing message bubbles with timestamps and a multiline 2,000-character composer in a safe-area-aware `KeyboardAvoidingView`. All new screen/component colors come from the existing light/dark tokens; no delivery/read UI, media behavior, retry queue, or extra dependency was added.
+  - Reviewed the Expo SDK 54 reference before implementation. `npx tsc --noEmit`, `npm run lint`, and the required final `npx prettier --write .` all pass in `mobile/`; TypeScript and lint also pass after formatting. A production web export bundles successfully and recognizes the new dynamic conversation route. Repository checks find no remaining temporary socket-hook import, no direct SecureStore use outside auth storage, and no hardcoded color values in the new Feature 09 files.
+  - No backend, socket-server, Prisma schema, or migration code was changed for Feature 09. Real-device navigation, keyboard/theme, persistence, disconnect, pagination, and true two-participant live-send tests remain pending because the required local environment values are not yet complete.
+
 ## In Progress
 
 - Feature 03 manual real-device verification (signup, persistent session refresh, logout, and backend error states).
 - Feature 04 manual real-device verification: copy the exact `JWT_ACCESS_SECRET` used by `backend/` into `socket-server/.env`, set `EXPO_PUBLIC_SOCKET_URL` in `mobile/.env` to `http://<hotspot-ip>:4000`, then confirm the phone can reach `/health`, a logged-in user connects, and an intentionally invalid token is rejected. The implementation is complete; this device/network validation cannot be performed by the agent.
 - Feature 06 manual Expo Go verification: confirm list/empty/error states, name and email searches, idempotent selection and focus refresh, native back navigation, light/dark appearance, and logout on a real device. The implementation and static checks are complete.
 - Feature 08 local environment setup: add `DATABASE_URL` to `socket-server/.env` using the same value as `backend/.env`. Live verification was completed by injecting the existing backend value into the test process without printing or persisting it; the checked local socket `.env` still lacks this required key.
+- Feature 09 environment and two-device verification: `mobile/.env` has a configured non-localhost `EXPO_PUBLIC_API_URL`, but still needs `EXPO_PUBLIC_SOCKET_URL=http://<computer-LAN-IP>:4000`; `socket-server/.env` still needs the matching backend `DATABASE_URL`. After adding them, run the full checklist with two accounts/devices: navigation/history, bidirectional live messaging, sender de-duplication, reload/offline-recipient persistence, validation, disconnected draft retention, pagination over 50 messages, keyboard/light/dark layout, sign-out socket cleanup, and account isolation.
 
 ## Next Up
 
-- Feature 09: Mobile Chat Screen and Live Text Messaging — replace the temporary socket hook with the real mobile socket lifecycle, load Feature 07 history, send `message:send`, consume `message:new`, and render the chat experience.
+- Complete Feature 09's environment setup and two-device Expo Go checklist, then define the next product feature before extending messaging scope.
 
 ## Open Questions
 

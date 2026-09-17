@@ -21,7 +21,6 @@ import {
   type ConversationListItem,
 } from '@/lib/api/conversations';
 import { useAuth } from '@/lib/auth/AuthContext';
-import { useTemporarySocketTest } from '@/lib/socket/useTemporarySocketTest';
 
 function getErrorMessage(error: unknown): string {
   return error instanceof ApiError
@@ -30,7 +29,7 @@ function getErrorMessage(error: unknown): string {
 }
 
 export default function HomeScreen() {
-  const { accessToken, signOut } = useAuth();
+  const { signOut } = useAuth();
   const [conversations, setConversations] = useState<ConversationListItem[]>(
     []
   );
@@ -42,10 +41,18 @@ export default function HomeScreen() {
   const c = colors[scheme];
   const styles = createStyles(c);
 
-  useTemporarySocketTest(accessToken);
-
   const openNewConversation = useCallback(() => {
     router.push('/(app)/new-conversation');
+  }, []);
+
+  const openConversation = useCallback((conversation: ConversationListItem) => {
+    router.push({
+      pathname: '/(app)/conversation/[conversationId]',
+      params: {
+        conversationId: conversation.id,
+        participantName: conversation.participant.displayName,
+      },
+    });
   }, []);
 
   useFocusEffect(
@@ -127,7 +134,12 @@ export default function HomeScreen() {
           ListEmptyComponent={
             <EmptyConversationList onStartConversation={openNewConversation} />
           }
-          renderItem={({ item }) => <ConversationRow conversation={item} />}
+          renderItem={({ item }) => (
+            <ConversationRow
+              conversation={item}
+              onPress={() => openConversation(item)}
+            />
+          )}
           style={styles.list}
         />
       )}

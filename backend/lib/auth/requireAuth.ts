@@ -31,7 +31,9 @@ export function requireAuth(request: NextRequest): AuthResult {
   const parts = authHeader.split(" ");
 
   if (parts.length !== 2 || parts[0] !== "Bearer") {
-    throw new Error("Malformed Authorization header — expected 'Bearer <token>'");
+    throw new Error(
+      "Malformed Authorization header — expected 'Bearer <token>'",
+    );
   }
 
   const token = parts[1];

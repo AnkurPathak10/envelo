@@ -15,7 +15,10 @@ export function ThemedText({
   type = 'default',
   ...rest
 }: ThemedTextProps) {
-  const color = useThemeColor({ light: lightColor, dark: darkColor }, 'textPrimary');
+  const color = useThemeColor(
+    { light: lightColor, dark: darkColor },
+    'textPrimary'
+  );
   const linkColor = useThemeColor({}, 'accentPrimary');
 
   return (

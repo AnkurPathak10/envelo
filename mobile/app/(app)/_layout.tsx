@@ -20,6 +20,10 @@ export default function AppLayout() {
         name="new-conversation"
         options={{ headerBackTitle: 'Back', title: 'New conversation' }}
       />
+      <Stack.Screen
+        name="conversation/[conversationId]"
+        options={{ headerBackTitle: 'Back', title: 'Conversation' }}
+      />
     </Stack>
   );
 }

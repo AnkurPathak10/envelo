@@ -5,7 +5,10 @@ import { verifyPassword } from "@/lib/auth/password";
 import { signAccessToken, createRefreshTokenInDb } from "@/lib/auth/tokens";
 
 const loginSchema = z.object({
-  email: z.string().email("Invalid email address").transform((val) => val.trim().toLowerCase()),
+  email: z
+    .string()
+    .email("Invalid email address")
+    .transform((val) => val.trim().toLowerCase()),
   password: z.string().min(1, "Password is required"),
 });
 
@@ -23,7 +26,7 @@ export async function POST(request: NextRequest) {
   if (!parsed.success) {
     return NextResponse.json(
       { error: parsed.error.issues[0]?.message ?? "Invalid input" },
-      { status: 400 }
+      { status: 400 },
     );
   }
 
@@ -34,18 +37,12 @@ export async function POST(request: NextRequest) {
   });
 
   if (!user) {
-    return NextResponse.json(
-      { error: GENERIC_AUTH_ERROR },
-      { status: 401 }
-    );
+    return NextResponse.json({ error: GENERIC_AUTH_ERROR }, { status: 401 });
   }
 
   const isPasswordValid = await verifyPassword(password, user.passwordHash);
   if (!isPasswordValid) {
-    return NextResponse.json(
-      { error: GENERIC_AUTH_ERROR },
-      { status: 401 }
-    );
+    return NextResponse.json({ error: GENERIC_AUTH_ERROR }, { status: 401 });
   }
 
   const accessToken = signAccessToken(user.id);
