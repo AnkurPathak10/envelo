@@ -2,6 +2,11 @@ generator client {
   provider = "prisma-client-js"
 }
 
+generator socketClient {
+  provider = "prisma-client-js"
+  output   = "../../socket-server/src/generated/prisma"
+}
+
 datasource db {
   provider  = "postgresql"
   url       = env("DATABASE_URL")

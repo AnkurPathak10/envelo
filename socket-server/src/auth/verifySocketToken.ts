@@ -1,7 +1,7 @@
 import jwt, { type JwtPayload } from "jsonwebtoken";
-import type { Socket } from "socket.io";
 
 import { env } from "../lib/env";
+import type { EnveloSocket } from "../lib/messages";
 
 function getUserId(decoded: string | JwtPayload): string | null {
   if (typeof decoded === "string" || typeof decoded.sub !== "string")
@@ -10,7 +10,7 @@ function getUserId(decoded: string | JwtPayload): string | null {
 }
 
 export function verifySocketToken(
-  socket: Socket,
+  socket: EnveloSocket,
   next: (error?: Error) => void,
 ): void {
   const token = socket.handshake.auth.token;

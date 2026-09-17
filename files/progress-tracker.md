@@ -4,11 +4,11 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
-- Features 03, 04, and 06 implemented - pending manual real-device verification; Feature 05 complete
+- Features 03, 04, and 06 implemented - pending manual real-device verification; Features 05, 07, and 08 complete
 
 ## Current Goal
 
-- Manually verify the Feature 03 authentication flow, Feature 04 authenticated socket connection, and Feature 06 conversation-list flow on Expo Go
+- Add `DATABASE_URL` to the local socket-server environment, manually verify the existing Expo Go flows, then begin Feature 09 mobile chat and live text messaging
 
 ## Completed
 
@@ -94,7 +94,7 @@ Update this file after every meaningful implementation change.
   - Added `socket-server/src/auth/verifySocketToken.ts` Socket.io middleware. It reads `socket.handshake.auth.token`, verifies it with the configured access-token secret using the same JWT `sub` claim format as `backend/lib/auth/tokens.ts`, validates that `sub` is a string, stores it in `socket.data.userId`, and rejects missing, malformed, expired, or invalid tokens with `Unauthorized`.
   - Added `socket-server/src/index.ts`: an Express `GET /health` endpoint returning `{ status: "ok" }`, a Socket.io server with temporary permissive CORS, authentication middleware, and connection/disconnection logs containing only socket ID and authenticated user ID.
   - Added `npm run dev` (auto-reloading with `ts-node-dev`) and `npm run build` (strict type check) scripts. `socket-server/.gitignore` continues to exclude `.env`.
-  - Added `socket.io-client` to `mobile/` and a clearly marked temporary Feature 04 authenticated connection hook. Feature 06 moved it into `mobile/lib/socket/useTemporarySocketTest.ts`; Feature 07 will replace it with real messaging lifecycle management.
+  - Added `socket.io-client` to `mobile/` and a clearly marked temporary Feature 04 authenticated connection hook. Feature 06 moved it into `mobile/lib/socket/useTemporarySocketTest.ts`; Feature 09 will replace it with real messaging lifecycle management.
   - Extended `AuthContext` to expose the current in-memory access token, setting it after sign-in, sign-up, and startup refresh and clearing it on sign-out/session expiry; tokens remain persisted only through Expo SecureStore.
   - Formatted the new socket server and changed mobile files with Prettier.
   - Verification completed locally: `socket-server` strict build passed; the server started with `npm run dev`; `GET /health` returned `{ status: "ok" }`; a valid locally signed JWT connected successfully; an invalid token was rejected with `Unauthorized`; and mobile `npx tsc --noEmit` plus `npm run lint` passed.
@@ -120,15 +120,38 @@ Update this file after every meaningful implementation change.
   - Formatted all Feature 06 files with Prettier. `npx tsc --noEmit` and `npm run lint` both pass with no errors or warnings; repository checks also confirm no hardcoded colors, direct SecureStore access, duplicate fetch wrapper, message fields, or socket message events were introduced in the Feature 06 files.
   - Follow-up review fixes: capped search input at the API's 100-character maximum and separated search failures from conversation-creation failures, so the search retry action is never shown for a failed creation and users can retry creation by selecting the retained result again.
 
+- Feature 07: Message History API Foundation implemented:
+  - Added protected `GET /api/conversations/[conversationId]/messages`, using the existing JWT `requireAuth` helper and the `ConversationParticipant` join table for ownership checks. Missing conversations and conversations owned by another user return the same `404 Conversation not found` response.
+  - Added strict path/query handling: trimmed empty conversation IDs return 400, empty cursors return 400, and unknown or cross-conversation message cursors return `400 Invalid message cursor` only after conversation participation is authorized.
+  - Added `backend/lib/messages.ts` with the fixed 50-message page size, an explicit Prisma select, an inferred `MessageHistoryItem` type, and safe response mapping limited to `id`, `conversationId`, `senderId`, `content`, and `createdAt`.
+  - Implemented deterministic cursor pagination ordered by `createdAt DESC, id DESC`, fetching 51 records to detect an older page, skipping the boundary cursor, and reversing each page before serialization so responses are chronological. The final page returns `nextCursor: null`.
+  - Verified against the live backend and Neon with isolated temporary data: missing/invalid authentication returned 401; participants retrieved history; 52 messages paginated as 50 then 2 with no duplicate boundary; both pages were chronological; non-participants and invented conversations returned matching 404s; foreign, empty, and unknown cursors returned 400; and response objects exposed only the five allowed fields. All temporary users, conversations, and messages were deleted after the test.
+  - Formatted the new backend files with Prettier and verified `npx tsc --noEmit` plus `npm run build`; the production build recognizes the new dynamic route. No schema, migration, mobile, socket-server, message-write, or existing Feature 05 endpoint changes were made.
+
+- Feature 08: Socket Text Message Persistence and Broadcast implemented:
+  - Added only the approved `socketClient` generator to the authoritative `backend/prisma/schema.prisma`; it writes a socket-specific Prisma Client to the gitignored `socket-server/src/generated/prisma/` directory. No model, field, relation, table, migration, or backend REST route changed.
+  - Added pinned Prisma 6.19.3 client/CLI dependencies, Zod runtime validation, the development-only Socket.IO client, and local Prettier support. Socket scripts now generate from the backend schema before development/build, provide an optional all-client generation command, compile TypeScript, and copy the custom generated Prisma runtime into `dist/` for production startup.
+  - Extended fail-fast environment validation with a non-empty `DATABASE_URL` check without logging its value. Added one socket-process Prisma client and graceful `SIGINT`/`SIGTERM` disconnection.
+  - Added explicit Socket.IO client/server event generics, socket data, acknowledgement types, the five-field public text-message payload, a focused Prisma select, and a mapper that serializes `createdAt` without exposing database relations or private fields.
+  - Added Zod validation for unknown `message:send` input: conversation IDs are trimmed/non-empty and message text is trimmed, non-empty, and capped at 2,000 characters. Invalid input is rejected before any database query or write.
+  - Added database-backed conversation authorization using the authenticated JWT `sub` from `socket.data.userId`. Invented and unauthorized conversation IDs intentionally return the same `Conversation not found` acknowledgement.
+  - Implemented one Prisma transaction that creates the text `Message` with `mediaUrl: null`, creates one `SENT` status per non-sender participant, and advances `Conversation.updatedAt`. The server emits and acknowledges only after that transaction commits, preventing ghost messages.
+  - Added server-owned `user:<userId>` rooms. Each authenticated socket joins only its own room, and a committed `message:new` payload is emitted to the sender plus every recipient room so multiple active devices receive the same durable record.
+  - Added concise validation, authorization, persistence, connection, and disconnection logging containing socket/user IDs only; message text, event payloads, access tokens, JWT secrets, and database URLs are never logged.
+  - Added `scripts/verify-message-flow.ts`, which reads two tokens and a conversation ID from environment variables, connects two real clients, checks matching acknowledgement/broadcast payloads, verifies the durable row plus recipient `SENT` status in Neon, and disconnects sockets/Prisma in `finally`. `socket-server/README.md` documents local environment setup, client generation, startup, migration ownership, and the verification command.
+  - Verified `npm run build`, production generated-client loading, and `GET /health` (`{ "status": "ok" }`). A live Neon integration run with isolated temporary users exercised blank/oversized/missing payloads, invented and unauthorized conversations, sender/recipient/outsider room isolation, trimmed content, identical one-time broadcasts, durable IDs, `mediaUrl: null`, recipient `SENT`, recency updates, disconnected-recipient persistence, and Feature 07 history retrieval. Temporary test records were deleted afterward.
+  - `npx prettier --write package.json src scripts` passes. Generated Prisma output and compiled `dist/` remain ignored, and no socket migration command, mobile change, or existing backend route change was introduced.
+
 ## In Progress
 
 - Feature 03 manual real-device verification (signup, persistent session refresh, logout, and backend error states).
 - Feature 04 manual real-device verification: copy the exact `JWT_ACCESS_SECRET` used by `backend/` into `socket-server/.env`, set `EXPO_PUBLIC_SOCKET_URL` in `mobile/.env` to `http://<hotspot-ip>:4000`, then confirm the phone can reach `/health`, a logged-in user connects, and an intentionally invalid token is rejected. The implementation is complete; this device/network validation cannot be performed by the agent.
 - Feature 06 manual Expo Go verification: confirm list/empty/error states, name and email searches, idempotent selection and focus refresh, native back navigation, light/dark appearance, and logout on a real device. The implementation and static checks are complete.
+- Feature 08 local environment setup: add `DATABASE_URL` to `socket-server/.env` using the same value as `backend/.env`. Live verification was completed by injecting the existing backend value into the test process without printing or persisting it; the checked local socket `.env` still lacks this required key.
 
 ## Next Up
 
-- Feature 07: Conversation Screen and Real-Time Text Messages, replacing the temporary socket verification hook with the real socket lifecycle and adding the first chat-detail flow.
+- Feature 09: Mobile Chat Screen and Live Text Messaging — replace the temporary socket hook with the real mobile socket lifecycle, load Feature 07 history, send `message:send`, consume `message:new`, and render the chat experience.
 
 ## Open Questions
 

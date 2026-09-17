@@ -4,7 +4,15 @@ import { createServer } from "node:http";
 import { Server } from "socket.io";
 
 import { verifySocketToken } from "./auth/verifySocketToken";
+import { registerMessageHandlers } from "./events/messages";
 import { env } from "./lib/env";
+import type {
+  ClientToServerEvents,
+  InterServerEvents,
+  ServerToClientEvents,
+  SocketData,
+} from "./lib/messages";
+import { userRoom } from "./lib/rooms";
 
 const app = express();
 app.use(cors());
@@ -13,10 +21,18 @@ app.get("/health", (_request, response) => {
 });
 
 const httpServer = createServer(app);
-const io = new Server(httpServer, { cors: { origin: "*" } });
+const io = new Server<
+  ClientToServerEvents,
+  ServerToClientEvents,
+  InterServerEvents,
+  SocketData
+>(httpServer, { cors: { origin: "*" } });
 
 io.use(verifySocketToken);
 io.on("connection", (socket) => {
+  socket.join(userRoom(socket.data.userId));
+  registerMessageHandlers(io, socket);
+
   console.log(`Socket connected: ${socket.id}, user: ${socket.data.userId}`);
 
   socket.on("disconnect", () => {

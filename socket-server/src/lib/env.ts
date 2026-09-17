@@ -15,7 +15,13 @@ function readAccessSecret(value: string | undefined): string {
   return value;
 }
 
+function readDatabaseUrl(value: string | undefined): string {
+  if (!value?.trim()) throw new Error("DATABASE_URL must be set.");
+  return value;
+}
+
 export const env = {
+  databaseUrl: readDatabaseUrl(process.env.DATABASE_URL),
   jwtAccessSecret: readAccessSecret(process.env.JWT_ACCESS_SECRET),
   port: readPort(process.env.PORT),
 };
