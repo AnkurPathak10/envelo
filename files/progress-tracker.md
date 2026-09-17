@@ -4,11 +4,11 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
-- Features 03, 04, 06, and 09 implemented - pending manual real-device verification; Features 05, 07, and 08 complete
+- Features 03, 04, 06, and 09 implemented - pending remaining manual real-device verification; Features 05, 07, and 08 complete; Feature 10 specified
 
 ## Current Goal
 
-- Configure the missing mobile/socket environment values and manually verify Feature 09 with two signed-in devices on the same network
+- Implement Feature 10's backend conversation inbox metadata contract, then build durable read-state and the live mobile inbox in separate feature units
 
 ## Completed
 
@@ -154,17 +154,26 @@ Update this file after every meaningful implementation change.
   - Reviewed the Expo SDK 54 reference before implementation. `npx tsc --noEmit`, `npm run lint`, and the required final `npx prettier --write .` all pass in `mobile/`; TypeScript and lint also pass after formatting. A production web export bundles successfully and recognizes the new dynamic conversation route. Repository checks find no remaining temporary socket-hook import, no direct SecureStore use outside auth storage, and no hardcoded color values in the new Feature 09 files.
   - No backend, socket-server, Prisma schema, or migration code was changed for Feature 09. Real-device navigation, keyboard/theme, persistence, disconnect, pagination, and true two-participant live-send tests remain pending because the required local environment values are not yet complete.
 
+- Feature 09 local testing follow-ups:
+  - Added a root Expo Router redirect so `/` resolves to login or home instead of an unmatched route.
+  - Added the Expo-documented web storage fallback for development browser testing while Android/iOS continue using encrypted SecureStore.
+  - Added origin-restricted backend API CORS handling for the local Expo web origin.
+  - Configured the socket server with the backend database URL without exposing it; Prisma generation, socket startup on port 4000, and `/health` were verified.
+  - Two signed-in accounts have exchanged a live message successfully. The remaining full Feature 09 edge-case checklist is still pending.
+
 ## In Progress
 
 - Feature 03 manual real-device verification (signup, persistent session refresh, logout, and backend error states).
 - Feature 04 manual real-device verification: copy the exact `JWT_ACCESS_SECRET` used by `backend/` into `socket-server/.env`, set `EXPO_PUBLIC_SOCKET_URL` in `mobile/.env` to `http://<hotspot-ip>:4000`, then confirm the phone can reach `/health`, a logged-in user connects, and an intentionally invalid token is rejected. The implementation is complete; this device/network validation cannot be performed by the agent.
 - Feature 06 manual Expo Go verification: confirm list/empty/error states, name and email searches, idempotent selection and focus refresh, native back navigation, light/dark appearance, and logout on a real device. The implementation and static checks are complete.
-- Feature 08 local environment setup: add `DATABASE_URL` to `socket-server/.env` using the same value as `backend/.env`. Live verification was completed by injecting the existing backend value into the test process without printing or persisting it; the checked local socket `.env` still lacks this required key.
-- Feature 09 environment and two-device verification: `mobile/.env` has a configured non-localhost `EXPO_PUBLIC_API_URL`, but still needs `EXPO_PUBLIC_SOCKET_URL=http://<computer-LAN-IP>:4000`; `socket-server/.env` still needs the matching backend `DATABASE_URL`. After adding them, run the full checklist with two accounts/devices: navigation/history, bidirectional live messaging, sender de-duplication, reload/offline-recipient persistence, validation, disconnected draft retention, pagination over 50 messages, keyboard/light/dark layout, sign-out socket cleanup, and account isolation.
+- Feature 09 remaining two-device verification: complete sender de-duplication, reload/offline-recipient persistence, validation, disconnected draft retention, pagination over 50 messages, keyboard/light/dark layout, sign-out socket cleanup, and account isolation.
+- Feature 09 review follow-up: removed the web `localStorage` token fallback after security review. Android/iOS continue using Expo SecureStore; web tokens now exist only in module memory for the active page lifecycle and are cleared on reload. Persistent web login remains intentionally deferred until the backend owns an HttpOnly refresh-cookie flow. Automatic Socket.IO reconnection remains disabled because Feature 09 explicitly defines disconnected UI with no v1 retry policy or offline queue.
 
 ## Next Up
 
-- Complete Feature 09's environment setup and two-device Expo Go checklist, then define the next product feature before extending messaging scope.
+- Feature 10: backend conversation inbox metadata (`lastMessage`, exact per-user `unreadCount`, newest-activity ordering).
+- Feature 11: Socket Delivery and Read State Foundation.
+- Feature 12: Mobile Live Inbox and UX polish (live row movement, preview/timestamp, unread badge, and improved New conversation/header controls).
 
 ## Open Questions
 
@@ -173,6 +182,9 @@ Update this file after every meaningful implementation change.
   from `ui-context.md`, `@expo/vector-icons` for icons
 - Exact reconnection/offline-message-queue behavior for the
   Socket.io client not yet defined
+- Conversation-list UX review: the current text-only New conversation action
+  looks visually distorted/unfinished and must become a polished icon/button
+  during Feature 12's mobile inbox work.
 - Docker: Ankur wants to containerize `backend/` and
   `socket-server/` for local dev and deployment — timing TBD,
   planned for once `socket-server/` has real code to containerize

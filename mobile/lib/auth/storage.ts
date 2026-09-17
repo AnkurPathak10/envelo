@@ -3,24 +3,17 @@ import { Platform } from 'react-native';
 
 const ACCESS_TOKEN_KEY = 'envelo_access_token';
 const REFRESH_TOKEN_KEY = 'envelo_refresh_token';
+const webTokens = new Map<string, string>();
 
 export interface AuthTokens {
   accessToken: string;
   refreshToken: string;
 }
 
-function getWebStorage(): Storage | null {
-  try {
-    return typeof localStorage === 'undefined' ? null : localStorage;
-  } catch {
-    return null;
-  }
-}
-
 async function getItem(key: string): Promise<string | null> {
   if (Platform.OS !== 'web') return SecureStore.getItemAsync(key);
 
-  return getWebStorage()?.getItem(key) ?? null;
+  return webTokens.get(key) ?? null;
 }
 
 async function setItem(key: string, value: string): Promise<void> {
@@ -29,7 +22,9 @@ async function setItem(key: string, value: string): Promise<void> {
     return;
   }
 
-  getWebStorage()?.setItem(key, value);
+  // Web tokens intentionally live only for this page lifecycle. A persistent
+  // web session requires a separate backend-owned HttpOnly refresh cookie flow.
+  webTokens.set(key, value);
 }
 
 async function deleteItem(key: string): Promise<void> {
@@ -38,7 +33,7 @@ async function deleteItem(key: string): Promise<void> {
     return;
   }
 
-  getWebStorage()?.removeItem(key);
+  webTokens.delete(key);
 }
 
 export async function getTokens(): Promise<AuthTokens | null> {
