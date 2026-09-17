@@ -40,6 +40,8 @@ model Conversation {
 
   participants  ConversationParticipant[]
   messages      Message[]
+
+  directKey String? @unique
 }
 
 model ConversationParticipant {

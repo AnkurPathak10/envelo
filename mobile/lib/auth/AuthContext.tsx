@@ -21,6 +21,7 @@ import { clearTokens, saveTokens } from '@/lib/auth/storage';
 
 interface AuthContextValue {
   user: ApiUser | null;
+  accessToken: string | null;
   isLoading: boolean;
   signIn: (input: SignInInput) => Promise<void>;
   signUp: (input: SignUpInput) => Promise<void>;
@@ -29,12 +30,18 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 export function AuthProvider({ children }: PropsWithChildren) {
   const [user, setUser] = useState<ApiUser | null>(null);
+  const [accessToken, setAccessToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   useEffect(() => {
-    setSessionExpiredHandler(() => setUser(null));
+    setSessionExpiredHandler(() => {
+      setAccessToken(null);
+      setUser(null);
+    });
     void (async () => {
       try {
-        setUser((await refreshSession())?.user ?? null);
+        const session = await refreshSession();
+        setAccessToken(session?.accessToken ?? null);
+        setUser(session?.user ?? null);
       } finally {
         setIsLoading(false);
       }
@@ -43,6 +50,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
   }, []);
   const completeAuthentication = useCallback(async (response: AuthResponse) => {
     await saveTokens(response);
+    setAccessToken(response.accessToken);
     setUser(response.user);
   }, []);
   const authenticateWithSignIn = useCallback(
@@ -60,18 +68,27 @@ export function AuthProvider({ children }: PropsWithChildren) {
       /* Local logout still succeeds if the server is unavailable. */
     } finally {
       await clearTokens();
+      setAccessToken(null);
       setUser(null);
     }
   }, []);
   const value = useMemo(
     () => ({
       user,
+      accessToken,
       isLoading,
       signIn: authenticateWithSignIn,
       signUp: authenticateWithSignUp,
       signOut,
     }),
-    [authenticateWithSignIn, authenticateWithSignUp, isLoading, signOut, user]
+    [
+      accessToken,
+      authenticateWithSignIn,
+      authenticateWithSignUp,
+      isLoading,
+      signOut,
+      user,
+    ]
   );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

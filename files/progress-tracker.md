@@ -4,11 +4,11 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
-- Feature 03 implemented - pending manual real-device verification
+- Features 03, 04, and 06 implemented - pending manual real-device verification; Feature 05 complete
 
 ## Current Goal
 
-- Manually verify the Feature 03 mobile authentication flow on Expo Go
+- Manually verify the Feature 03 authentication flow, Feature 04 authenticated socket connection, and Feature 06 conversation-list flow on Expo Go
 
 ## Completed
 
@@ -88,13 +88,46 @@ Update this file after every meaningful implementation change.
   - No hardcoded hex color values remain in any `mobile/app/` screen
   - No references to the old `Colors` / `Fonts` exports remain anywhere in `mobile/`
 
+- Feature 04: Socket Server Foundation implemented:
+  - Scaffolded `socket-server/` as a strict TypeScript Node project with Express, Socket.io, CORS, dotenv, and JSON Web Token dependencies.
+  - Added `socket-server/src/lib/env.ts`, which loads environment configuration at startup and fails fast when `PORT` is missing/invalid or `JWT_ACCESS_SECRET` is missing. It never supplies a fallback secret.
+  - Added `socket-server/src/auth/verifySocketToken.ts` Socket.io middleware. It reads `socket.handshake.auth.token`, verifies it with the configured access-token secret using the same JWT `sub` claim format as `backend/lib/auth/tokens.ts`, validates that `sub` is a string, stores it in `socket.data.userId`, and rejects missing, malformed, expired, or invalid tokens with `Unauthorized`.
+  - Added `socket-server/src/index.ts`: an Express `GET /health` endpoint returning `{ status: "ok" }`, a Socket.io server with temporary permissive CORS, authentication middleware, and connection/disconnection logs containing only socket ID and authenticated user ID.
+  - Added `npm run dev` (auto-reloading with `ts-node-dev`) and `npm run build` (strict type check) scripts. `socket-server/.gitignore` continues to exclude `.env`.
+  - Added `socket.io-client` to `mobile/` and a clearly marked temporary Feature 04 authenticated connection hook. Feature 06 moved it into `mobile/lib/socket/useTemporarySocketTest.ts`; Feature 07 will replace it with real messaging lifecycle management.
+  - Extended `AuthContext` to expose the current in-memory access token, setting it after sign-in, sign-up, and startup refresh and clearing it on sign-out/session expiry; tokens remain persisted only through Expo SecureStore.
+  - Formatted the new socket server and changed mobile files with Prettier.
+  - Verification completed locally: `socket-server` strict build passed; the server started with `npm run dev`; `GET /health` returned `{ status: "ok" }`; a valid locally signed JWT connected successfully; an invalid token was rejected with `Unauthorized`; and mobile `npx tsc --noEmit` plus `npm run lint` passed.
+
+- Feature 05: Conversation API Foundation implemented:
+  - Added the nullable, unique `Conversation.directKey` schema field. Direct 1:1 conversations use a lexicographically sorted `userId:participantId` key, while future group conversations keep `directKey` as `null`.
+  - Applied and recorded the `20260917154500_add_direct_conversation_key` Prisma migration against Neon. `prisma migrate dev` could not create a migration in this non-interactive environment, so Prisma generated the schema diff, applied that exact generated SQL with `prisma db execute`, and recorded it using `prisma migrate resolve --applied`.
+  - Added `GET /api/users?query=<text>`: JWT-protected, Zod-validated case-insensitive display-name/email search; excludes the current user; orders by display name; limits to 20; and selects only `id`, `displayName`, and `email`.
+  - Added `POST /api/conversations/direct`: JWT-protected and Zod-validated direct-conversation creation/retrieval. It rejects self-conversations, returns 404 for absent users, creates the conversation and both participant records atomically, and safely re-fetches on the `directKey` unique-constraint race.
+  - Added `GET /api/conversations`: returns only conversations in which the authenticated user is a participant, ordered by `updatedAt` descending, with only the other participant's public details and no fabricated message data.
+  - Added `backend/lib/conversations.ts` for direct-key construction and shared, focused response mapping; request parsing and HTTP status handling remain in route handlers.
+  - Regenerated Prisma Client, formatted the new Feature 05 TypeScript files with Prettier, and verified `npm run build` passes in `backend/`.
+  - Verified all endpoint cases against the live Neon database using three newly created test users: unauthenticated search is 401; search excludes the requester and exposes no password field; initial/repeated/reversed direct creation returns one shared ID; self and missing-user requests return 400/404; both participants can list the conversation; and a third user cannot.
+
+- Feature 06: Mobile Conversation List implemented:
+  - Replaced the authenticated placeholder Home screen with a focus-aware conversation list backed by `GET /api/conversations`. It includes the Envelo header, New conversation and Log out actions, first-load progress, empty state, human-readable API errors, retry behavior, and non-navigating participant rows without fabricated message metadata.
+  - Added `mobile/lib/api/conversations.ts` with explicit contract types and envelope-unwrapping wrappers for conversation listing, URL-encoded user search, and idempotent direct-conversation creation. All requests continue through the existing token-refreshing `apiRequest` client.
+  - Added the native-stack `New conversation` screen with an automatically focused name/email input, 300 ms debounced search, no request for blank input, loading/empty/error states, retry behavior, and request sequencing so stale responses cannot replace newer results.
+  - Choosing a search result disables all result presses, calls the server-owned direct-conversation endpoint, reports creation failures without losing the query, and returns with `router.back()` on success. Home re-fetches whenever it regains focus so the conversation appears without a duplicate check in the client.
+  - Added small presentational components for conversation rows, the empty list, and user search results. Every new or changed screen/component uses the existing light/dark design tokens and contains no hardcoded colors.
+  - Moved the Feature 04 Socket.io verification lifecycle into `mobile/lib/socket/useTemporarySocketTest.ts`, preserving the authenticated handshake, token-safe logging, temporary marker, and disconnect cleanup.
+  - Configured the authenticated stack so Home keeps its custom header while New conversation receives the native title/back button with theme-aware header colors.
+  - Formatted all Feature 06 files with Prettier. `npx tsc --noEmit` and `npm run lint` both pass with no errors or warnings; repository checks also confirm no hardcoded colors, direct SecureStore access, duplicate fetch wrapper, message fields, or socket message events were introduced in the Feature 06 files.
+
 ## In Progress
 
 - Feature 03 manual real-device verification (signup, persistent session refresh, logout, and backend error states).
+- Feature 04 manual real-device verification: copy the exact `JWT_ACCESS_SECRET` used by `backend/` into `socket-server/.env`, set `EXPO_PUBLIC_SOCKET_URL` in `mobile/.env` to `http://<hotspot-ip>:4000`, then confirm the phone can reach `/health`, a logged-in user connects, and an intentionally invalid token is rejected. The implementation is complete; this device/network validation cannot be performed by the agent.
+- Feature 06 manual Expo Go verification: confirm list/empty/error states, name and email searches, idempotent selection and focus refresh, native back navigation, light/dark appearance, and logout on a real device. The implementation and static checks are complete.
 
 ## Next Up
 
-- Feature 04: conversation list and REST API design, after Feature 03 is manually verified.
+- Feature 07: Conversation Screen and Real-Time Text Messages, replacing the temporary socket verification hook with the real socket lifecycle and adding the first chat-detail flow.
 
 ## Open Questions
 
