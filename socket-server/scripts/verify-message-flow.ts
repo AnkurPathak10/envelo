@@ -39,15 +39,29 @@ function receiveOneMessage(
   socket: VerificationSocket,
 ): Promise<TextMessagePayload> {
   return new Promise((resolve, reject) => {
-    const timeout = setTimeout(
-      () => reject(new Error("Timed out waiting for message:new.")),
-      10_000,
-    );
-
-    socket.once("message:new", (message) => {
+    const cleanup = (): void => {
       clearTimeout(timeout);
+      socket.off("message:new", handleMessage);
+      socket.off("disconnect", handleDisconnect);
+    };
+
+    const handleMessage = (message: TextMessagePayload): void => {
+      cleanup();
       resolve(message);
-    });
+    };
+
+    const handleDisconnect = (): void => {
+      cleanup();
+      reject(new Error("Socket disconnected while waiting for message:new."));
+    };
+
+    const timeout = setTimeout(() => {
+      cleanup();
+      reject(new Error("Timed out waiting for message:new."));
+    }, 10_000);
+
+    socket.once("message:new", handleMessage);
+    socket.once("disconnect", handleDisconnect);
   });
 }
 
@@ -95,6 +109,8 @@ async function main(): Promise<void> {
     const uniqueContent = `Feature 08 verification ${Date.now()} ${randomUUID()}`;
     const senderEvent = receiveOneMessage(sender);
     const recipientEvent = receiveOneMessage(recipient);
+    void senderEvent.catch(() => undefined);
+    void recipientEvent.catch(() => undefined);
     const acknowledgement = await sendMessage(
       sender,
       conversationId,
