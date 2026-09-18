@@ -14,6 +14,7 @@ interface MessageComposerProps {
   connectionState: SocketConnectionState;
   isSending: boolean;
   onChangeText: (value: string) => void;
+  onRetryConnection: () => void;
   onSend: () => void;
   sendError: string | null;
   value: string;
@@ -25,6 +26,7 @@ function getConnectionNotice(
   if (connectionState === 'connected') return null;
   if (connectionState === 'connecting') return 'Connecting to messaging…';
   if (connectionState === 'reconnecting') return 'Reconnecting…';
+  if (connectionState === 'disconnected') return 'Disconnected. Tap to retry.';
   return 'Messaging is disconnected. Send is unavailable.';
 }
 
@@ -32,6 +34,7 @@ export function MessageComposer({
   connectionState,
   isSending,
   onChangeText,
+  onRetryConnection,
   onSend,
   sendError,
   value,
@@ -45,7 +48,19 @@ export function MessageComposer({
 
   return (
     <View style={styles.container}>
-      {connectionNotice ? (
+      {connectionState === 'disconnected' && connectionNotice ? (
+        <Pressable
+          accessibilityLabel="Retry messaging connection"
+          accessibilityRole="button"
+          onPress={onRetryConnection}
+          style={({ pressed }) => [
+            styles.retryConnection,
+            pressed && styles.retryConnectionPressed,
+          ]}
+        >
+          <Text style={styles.connectionNotice}>{connectionNotice}</Text>
+        </Pressable>
+      ) : connectionNotice ? (
         <Text style={styles.connectionNotice}>{connectionNotice}</Text>
       ) : null}
       {sendError ? <Text style={styles.errorText}>{sendError}</Text> : null}
@@ -116,6 +131,8 @@ const createStyles = (c: typeof colors.light) =>
       paddingVertical: 10,
       textAlignVertical: 'top',
     },
+    retryConnection: { alignSelf: 'center' },
+    retryConnectionPressed: { opacity: 0.65 },
     sendButton: {
       alignItems: 'center',
       backgroundColor: c.accentPrimary,

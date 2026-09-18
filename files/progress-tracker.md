@@ -182,6 +182,9 @@ Update this file after every meaningful implementation change.
   - Reviewed the Expo SDK 54 reference before implementation. `npx tsc --noEmit`, `npm run lint`, and final `npx prettier --write .` pass in `mobile/`. The six required two-device/device-network scenarios remain pending because they require real devices and a prolonged background/token-expiry interval.
   - Review follow-up: a chat screen mounted before its first socket connection now reloads history when that initial connection completes, closing the small missed-message window between the REST history request and subscription readiness. The Feature 11 file map now names the actual `SocketContext` and chat component locations.
   - Re-ran `npx tsc --noEmit` and `npm run lint` in `mobile/` after the review follow-ups; both pass.
+  - Real-device Test 5 follow-up: installed the Expo SDK 54-compatible `@react-native-community/netinfo` package and subscribed in `SocketProvider` to disconnected-to-connected network transitions. Connectivity recovery now starts a fresh explicit socket connection after the bounded retry sequence has been exhausted, including when the app remains foregrounded.
+  - Added an accessible `Disconnected. Tap to retry.` composer affordance that explicitly starts a fresh connection attempt while the terminal disconnected state is visible. The reconnecting label and send-disable behavior remain unchanged during that attempt.
+  - After the network-recovery follow-up, final mobile Prettier, `npx tsc --noEmit`, `npm run lint`, and repository `git diff --check` all pass. The physical Test 5 re-run remains explicitly pending below.
 
 ## In Progress
 
@@ -190,7 +193,7 @@ Update this file after every meaningful implementation change.
 - Feature 06 manual Expo Go verification: confirm list/empty/error states, name and email searches, idempotent selection and focus refresh, native back navigation, light/dark appearance, and logout on a real device. The implementation and static checks are complete.
 - Feature 09 remaining two-device verification: complete sender de-duplication, reload/offline-recipient persistence, validation, disconnected draft retention, pagination over 50 messages, keyboard/light/dark layout, sign-out socket cleanup, and account isolation.
 - Feature 09 review follow-up: removed the web `localStorage` token fallback after security review. Android/iOS continue using Expo SecureStore; web tokens now exist only in module memory for the active page lifecycle and are cleared on reload. Persistent web login remains intentionally deferred until the backend owns an HttpOnly refresh-cookie flow. Feature 11 now supplies the bounded Socket.IO reconnection policy; offline message queueing remains intentionally deferred.
-- Feature 11 manual two-device verification: run the six specified scenarios for foreground recovery, airplane-mode backoff/recovery, expired-token refresh, missed-message history re-sync, retry exhaustion, and sign-out during reconnecting. These require local devices and cannot be completed by the agent.
+- Feature 11 manual two-device verification: re-run Test 5 by exhausting all ten retries in airplane mode and then restoring connectivity while the app stays foregrounded; confirm both automatic NetInfo recovery and the manual disconnected-state retry. The other pending scenarios cover foreground recovery, expired-token refresh, missed-message history re-sync, and sign-out during reconnecting.
 
 ## Next Up
 

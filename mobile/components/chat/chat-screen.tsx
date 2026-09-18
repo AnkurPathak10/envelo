@@ -42,6 +42,7 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
   const {
     connectionState,
     connectionEpoch,
+    retryConnection,
     sendMessage,
     subscribeToNewMessages,
   } = useSocket();
@@ -294,6 +295,7 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
             setDraft(value);
             if (sendError) setSendError(null);
           }}
+          onRetryConnection={retryConnection}
           onSend={() => void sendDraft()}
           sendError={sendError}
           value={draft}

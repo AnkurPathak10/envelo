@@ -8,6 +8,7 @@ import {
   useState,
   type PropsWithChildren,
 } from 'react';
+import NetInfo from '@react-native-community/netinfo';
 import { AppState, type AppStateStatus } from 'react-native';
 import { io, type Socket } from 'socket.io-client';
 
@@ -47,6 +48,7 @@ export type SocketConnectionState =
 interface SocketContextValue {
   connectionState: SocketConnectionState;
   connectionEpoch: number;
+  retryConnection: () => void;
   sendMessage: (
     payload: MessageSendPayload
   ) => Promise<MessageSendAcknowledgement>;
@@ -136,6 +138,14 @@ export function SocketProvider({ children }: PropsWithChildren) {
     };
   }, [accessToken]);
 
+  const retryConnection = useCallback((): void => {
+    const socket = socketRef.current;
+    if (!accessToken || !socket || socket.connected) return;
+
+    setConnectionState('reconnecting');
+    socket.connect();
+  }, [accessToken]);
+
   const reconnectWhenForegrounded = useCallback(async (): Promise<void> => {
     const socket = socketRef.current;
     if (!accessToken || socket?.connected) return;
@@ -173,6 +183,17 @@ export function SocketProvider({ children }: PropsWithChildren) {
 
     return () => subscription.remove();
   }, [reconnectWhenForegrounded]);
+
+  useEffect(() => {
+    let previousIsConnected: boolean | null = null;
+    return NetInfo.addEventListener((networkState) => {
+      const regainedConnectivity =
+        networkState.isConnected === true && previousIsConnected !== true;
+      previousIsConnected = networkState.isConnected;
+
+      if (regainedConnectivity) retryConnection();
+    });
+  }, [retryConnection]);
 
   const sendMessage = useCallback(
     (payload: MessageSendPayload): Promise<MessageSendAcknowledgement> =>
@@ -219,10 +240,17 @@ export function SocketProvider({ children }: PropsWithChildren) {
     () => ({
       connectionState,
       connectionEpoch,
+      retryConnection,
       sendMessage,
       subscribeToNewMessages,
     }),
-    [connectionEpoch, connectionState, sendMessage, subscribeToNewMessages]
+    [
+      connectionEpoch,
+      connectionState,
+      retryConnection,
+      sendMessage,
+      subscribeToNewMessages,
+    ]
   );
 
   return (
