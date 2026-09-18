@@ -1,4 +1,4 @@
-import { type Prisma } from "@prisma/client";
+import { MessageStatusType, type Prisma } from "@prisma/client";
 
 export const directConversationSelect = {
   id: true,
@@ -19,6 +19,53 @@ export const directConversationSelect = {
 
 type DirectConversation = Prisma.ConversationGetPayload<{
   select: typeof directConversationSelect;
+}>;
+
+export function conversationListSelect(currentUserId: string) {
+  return {
+    id: true,
+    createdAt: true,
+    updatedAt: true,
+    participants: {
+      select: {
+        user: {
+          select: {
+            id: true,
+            displayName: true,
+            email: true,
+          },
+        },
+      },
+    },
+    messages: {
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      take: 1,
+      select: {
+        id: true,
+        senderId: true,
+        content: true,
+        createdAt: true,
+      },
+    },
+    _count: {
+      select: {
+        messages: {
+          where: {
+            statuses: {
+              some: {
+                userId: currentUserId,
+                status: { not: MessageStatusType.READ },
+              },
+            },
+          },
+        },
+      },
+    },
+  } satisfies Prisma.ConversationSelect;
+}
+
+type ConversationListConversation = Prisma.ConversationGetPayload<{
+  select: ReturnType<typeof conversationListSelect>;
 }>;
 
 export function createDirectKey(userId: string, participantId: string): string {
@@ -52,13 +99,24 @@ export function toCreatedDirectConversation(
 }
 
 export function toConversationListItem(
-  conversation: DirectConversation,
+  conversation: ConversationListConversation,
   currentUserId: string,
 ) {
+  const lastMessage = conversation.messages[0];
+
   return {
     id: conversation.id,
-    createdAt: conversation.createdAt,
-    updatedAt: conversation.updatedAt,
+    createdAt: conversation.createdAt.toISOString(),
+    updatedAt: conversation.updatedAt.toISOString(),
     participant: getOtherParticipant(conversation, currentUserId),
+    lastMessage: lastMessage
+      ? {
+          id: lastMessage.id,
+          senderId: lastMessage.senderId,
+          content: lastMessage.content,
+          createdAt: lastMessage.createdAt.toISOString(),
+        }
+      : null,
+    unreadCount: conversation._count.messages,
   };
 }

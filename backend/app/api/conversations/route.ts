@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import {
-  directConversationSelect,
+  conversationListSelect,
   toConversationListItem,
 } from "@/lib/conversations";
 import { requireAuth } from "@/lib/auth/requireAuth";
@@ -17,8 +17,8 @@ export async function GET(request: NextRequest) {
 
   const conversations = await prisma.conversation.findMany({
     where: { participants: { some: { userId } } },
-    orderBy: { updatedAt: "desc" },
-    select: directConversationSelect,
+    orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
+    select: conversationListSelect(userId),
   });
 
   return NextResponse.json({

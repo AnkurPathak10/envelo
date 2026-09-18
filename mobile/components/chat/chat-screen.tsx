@@ -39,7 +39,12 @@ function historyErrorMessage(error: unknown): string {
 
 export function ChatScreen({ conversationId }: ChatScreenProps) {
   const { user } = useAuth();
-  const { connectionState, sendMessage, subscribeToNewMessages } = useSocket();
+  const {
+    connectionState,
+    connectionEpoch,
+    sendMessage,
+    subscribeToNewMessages,
+  } = useSocket();
   const [messages, setMessages] = useState<RenderableTextMessage[]>([]);
   const [initialState, setInitialState] =
     useState<InitialHistoryState>('loading');
@@ -53,6 +58,8 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
   const [reloadVersion, setReloadVersion] = useState(0);
   const listRef = useRef<FlatList<RenderableTextMessage>>(null);
   const pendingScroll = useRef<{ animated: boolean } | null>(null);
+  const observedConnectionEpoch = useRef<number | null>(null);
+  const loadedConversationId = useRef<string | null>(null);
   const scheme = useColorScheme() ?? 'light';
   const c = colors[scheme];
   const styles = createStyles(c);
@@ -68,23 +75,32 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
     }
 
     let isActive = true;
-    setInitialState('loading');
-    setInitialError(null);
+    const isInitialLoad = loadedConversationId.current !== conversationId;
+    if (isInitialLoad) {
+      setInitialState('loading');
+      setInitialError(null);
+    }
 
     void getMessageHistory(conversationId)
       .then((page) => {
         if (!isActive) return;
         setMessages((current) => mergeTextMessages(current, page.messages));
         setNextCursor(page.nextCursor);
+        loadedConversationId.current = conversationId;
         setInitialState('loaded');
         requestScrollToEnd(false);
       })
       .catch((error: unknown) => {
         if (!isActive) return;
-        if (error instanceof ApiError && error.status === 404) {
+        if (
+          isInitialLoad &&
+          error instanceof ApiError &&
+          error.status === 404
+        ) {
           setInitialState('not-found');
           return;
         }
+        if (!isInitialLoad) return;
         setInitialError(historyErrorMessage(error));
         setInitialState('error');
       });
@@ -93,6 +109,18 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
       isActive = false;
     };
   }, [conversationId, reloadVersion, requestScrollToEnd]);
+
+  useEffect(() => {
+    if (connectionEpoch === 0) return;
+    if (observedConnectionEpoch.current === null) {
+      observedConnectionEpoch.current = connectionEpoch;
+      return;
+    }
+    if (observedConnectionEpoch.current === connectionEpoch) return;
+
+    observedConnectionEpoch.current = connectionEpoch;
+    setReloadVersion((version) => version + 1);
+  }, [connectionEpoch]);
 
   useEffect(
     () =>

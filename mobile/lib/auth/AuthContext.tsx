@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type PropsWithChildren,
 } from 'react';
@@ -26,12 +27,14 @@ interface AuthContextValue {
   signIn: (input: SignInInput) => Promise<void>;
   signUp: (input: SignUpInput) => Promise<void>;
   signOut: () => Promise<void>;
+  refreshAccessToken: () => Promise<string | null>;
 }
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 export function AuthProvider({ children }: PropsWithChildren) {
   const [user, setUser] = useState<ApiUser | null>(null);
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const authRevision = useRef(0);
   useEffect(() => {
     setSessionExpiredHandler(() => {
       setAccessToken(null);
@@ -61,7 +64,25 @@ export function AuthProvider({ children }: PropsWithChildren) {
     async (input: SignUpInput) => completeAuthentication(await signUp(input)),
     [completeAuthentication]
   );
+  const refreshAccessToken = useCallback(async (): Promise<string | null> => {
+    const refreshRevision = authRevision.current;
+    const session = await refreshSession();
+    if (refreshRevision !== authRevision.current) {
+      await clearTokens();
+      return null;
+    }
+    if (!session) {
+      setAccessToken(null);
+      setUser(null);
+      return null;
+    }
+
+    setAccessToken(session.accessToken);
+    setUser(session.user);
+    return session.accessToken;
+  }, []);
   const signOut = useCallback(async () => {
+    authRevision.current += 1;
     try {
       await logout();
     } catch {
@@ -80,12 +101,14 @@ export function AuthProvider({ children }: PropsWithChildren) {
       signIn: authenticateWithSignIn,
       signUp: authenticateWithSignUp,
       signOut,
+      refreshAccessToken,
     }),
     [
       accessToken,
       authenticateWithSignIn,
       authenticateWithSignUp,
       isLoading,
+      refreshAccessToken,
       signOut,
       user,
     ]

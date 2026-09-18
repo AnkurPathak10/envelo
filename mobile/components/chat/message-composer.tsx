@@ -24,6 +24,7 @@ function getConnectionNotice(
 ): string | null {
   if (connectionState === 'connected') return null;
   if (connectionState === 'connecting') return 'Connecting to messaging…';
+  if (connectionState === 'reconnecting') return 'Reconnecting…';
   return 'Messaging is disconnected. Send is unavailable.';
 }
 

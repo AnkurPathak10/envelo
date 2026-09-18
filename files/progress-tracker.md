@@ -4,11 +4,11 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
-- Features 03, 04, 06, and 09 implemented - pending remaining manual real-device verification; Features 05, 07, and 08 complete; Feature 10 specified
+- Features 03, 04, 06, 09, and 11 implemented - pending remaining manual real-device verification; Features 05, 07, 08, and 10 complete
 
 ## Current Goal
 
-- Implement Feature 10's backend conversation inbox metadata contract, then build durable read-state and the live mobile inbox in separate feature units
+- Implement Feature 12's Socket Delivery and Read State Foundation, then consume inbox metadata and read state in Feature 13's mobile live inbox
 
 ## Completed
 
@@ -161,27 +161,48 @@ Update this file after every meaningful implementation change.
   - Configured the socket server with the backend database URL without exposing it; Prisma generation, socket startup on port 4000, and `/health` were verified.
   - Two signed-in accounts have exchanged a live message successfully. The remaining full Feature 09 edge-case checklist is still pending.
 
+- Feature 10: Conversation Inbox Metadata API implemented:
+  - Preserved the stable `directConversationSelect` used by Feature 05 creation/reuse and added a separate `conversationListSelect(currentUserId)` factory for the authenticated inbox query.
+  - The list selection fetches the newest message with deterministic `createdAt DESC, id DESC` ordering and `take: 1`, selecting only `id`, `senderId`, nullable `content`, and `createdAt`.
+  - Added a Prisma-filtered relation count for messages whose status row belongs to the authenticated user and is not `READ`. Because senders have no recipient status row, their own messages do not increase their count; both `SENT` and `DELIVERED` count without exposing status rows.
+  - `GET /api/conversations` continues authorizing through `requireAuth` and `ConversationParticipant`, now uses the user-aware selection in the same bounded Prisma query, and orders by `updatedAt DESC` with conversation ID as a deterministic secondary key. No N+1 follow-up query was introduced.
+  - Added a safe mapper contract with ISO-string conversation/message dates, `lastMessage: null` for empty conversations, exact uncapped `unreadCount`, and only the specified participant and preview fields. Whole Prisma models, media URLs, relations, and status data remain private.
+  - Verified against the live production API and Neon with isolated temporary users and conversations: missing/invalid auth returned 401; empty metadata was null/zero; five sender messages produced recipient/sender counts of 5/0; `DELIVERED` remained unread; `READ` reduced the count; the latest timestamp/ID tie-break selected the correct four-field preview; updated activity moved the conversation first; a third user could not see it; and dates/response keys matched the minimized contract.
+  - Re-verified Feature 05 direct-conversation reuse and Feature 07 message history through their real endpoints. Temporary records were cascade-deleted after the run.
+  - `npx tsc --noEmit`, a clean `npm run build`, backend Prettier, and `git diff --check` pass. No mobile, socket-server, Prisma schema, migration, generated-client, auth/token, message-write, or history implementation changed.
+
+- Feature 11: Socket Reconnection & Connection Resilience implemented:
+  - Re-enabled the app-level Socket.IO client's retry behavior with explicit bounded backoff: ten attempts, starting at one second and capping each delay at ten seconds. It now reports `reconnecting` separately from the terminal `disconnected` state once retries are exhausted.
+  - Added a React Native `AppState` foreground listener. When the app returns to `active` with no live socket, it refreshes the existing authenticated session through `AuthContext` before reconnecting; refresh failures do not expose or log tokens and leave the composer unavailable rather than attempting a stale-token connection.
+  - Guarded the foreground refresh with an auth revision so sign-out wins if it happens while that refresh is in flight; the stale refresh result clears its tokens and cannot restore a session or reconnect the socket.
+  - Made the socket client explicitly connect after listener setup, preserves the existing sign-out/unmount cleanup, and added a connection epoch so mounted chat screens can distinguish an initial connection from a later reconnection.
+  - An open conversation now re-fetches the newest Feature 07 history page after each later successful connection and merges it with the existing durable-ID de-duplication helper. This preserves messages already on screen while recovering messages persisted during an outage.
+  - Updated the existing composer state notice to show the understated `Reconnecting…` label; Send remains disabled for every state other than `connected`. No offline queue or optimistic sends were added.
+  - Confirmed the socket server already runs `verifySocketToken` for every new connection and joins the authenticated user room, so reconnections need no backend, socket-server, Prisma, or migration changes.
+  - Reviewed the Expo SDK 54 reference before implementation. `npx tsc --noEmit`, `npm run lint`, and final `npx prettier --write .` pass in `mobile/`. The six required two-device/device-network scenarios remain pending because they require real devices and a prolonged background/token-expiry interval.
+
 ## In Progress
 
 - Feature 03 manual real-device verification (signup, persistent session refresh, logout, and backend error states).
 - Feature 04 manual real-device verification: copy the exact `JWT_ACCESS_SECRET` used by `backend/` into `socket-server/.env`, set `EXPO_PUBLIC_SOCKET_URL` in `mobile/.env` to `http://<hotspot-ip>:4000`, then confirm the phone can reach `/health`, a logged-in user connects, and an intentionally invalid token is rejected. The implementation is complete; this device/network validation cannot be performed by the agent.
 - Feature 06 manual Expo Go verification: confirm list/empty/error states, name and email searches, idempotent selection and focus refresh, native back navigation, light/dark appearance, and logout on a real device. The implementation and static checks are complete.
 - Feature 09 remaining two-device verification: complete sender de-duplication, reload/offline-recipient persistence, validation, disconnected draft retention, pagination over 50 messages, keyboard/light/dark layout, sign-out socket cleanup, and account isolation.
-- Feature 09 review follow-up: removed the web `localStorage` token fallback after security review. Android/iOS continue using Expo SecureStore; web tokens now exist only in module memory for the active page lifecycle and are cleared on reload. Persistent web login remains intentionally deferred until the backend owns an HttpOnly refresh-cookie flow. Automatic Socket.IO reconnection remains disabled because Feature 09 explicitly defines disconnected UI with no v1 retry policy or offline queue.
+- Feature 09 review follow-up: removed the web `localStorage` token fallback after security review. Android/iOS continue using Expo SecureStore; web tokens now exist only in module memory for the active page lifecycle and are cleared on reload. Persistent web login remains intentionally deferred until the backend owns an HttpOnly refresh-cookie flow. Feature 11 now supplies the bounded Socket.IO reconnection policy; offline message queueing remains intentionally deferred.
+- Feature 11 manual two-device verification: run the six specified scenarios for foreground recovery, airplane-mode backoff/recovery, expired-token refresh, missed-message history re-sync, retry exhaustion, and sign-out during reconnecting. These require local devices and cannot be completed by the agent.
 
 ## Next Up
 
-- Feature 10: backend conversation inbox metadata (`lastMessage`, exact per-user `unreadCount`, newest-activity ordering).
-- Feature 11: Socket Delivery and Read State Foundation.
-- Feature 12: Mobile Live Inbox and UX polish (live row movement, preview/timestamp, unread badge, and improved New conversation/header controls).
+- Feature 12: Socket Delivery and Read State Foundation.
+- Feature 13: Mobile Live Inbox and UX polish (live row movement, preview/timestamp, unread badge, and improved New conversation/header controls).
 
 ## Open Questions
 
 - ~~UI color palette, component library, and icon set not yet
   confirmed~~ — Resolved: plain `StyleSheet` with design tokens
   from `ui-context.md`, `@expo/vector-icons` for icons
-- Exact reconnection/offline-message-queue behavior for the
-  Socket.io client not yet defined
+- ~~Exact Socket.IO reconnection behavior~~ — Resolved in Feature 11 with
+  bounded retry backoff, foreground recovery, and history re-sync; offline
+  message queueing remains deferred
 - Conversation-list UX review: the current text-only New conversation action
   looks visually distorted/unfinished and must become a polished icon/button
   during Feature 12's mobile inbox work.

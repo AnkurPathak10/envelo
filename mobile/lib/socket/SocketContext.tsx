@@ -8,6 +8,7 @@ import {
   useState,
   type PropsWithChildren,
 } from 'react';
+import { AppState, type AppStateStatus } from 'react-native';
 import { io, type Socket } from 'socket.io-client';
 
 import type { TextMessage } from '@/lib/api/conversations';
@@ -36,10 +37,16 @@ interface ClientToServerEvents {
 type NewMessageListener = ServerToClientEvents['message:new'];
 type EnveloSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 export type SocketConnectionState =
-  'signed-out' | 'connecting' | 'connected' | 'disconnected' | 'error';
+  | 'signed-out'
+  | 'connecting'
+  | 'connected'
+  | 'reconnecting'
+  | 'disconnected'
+  | 'error';
 
 interface SocketContextValue {
   connectionState: SocketConnectionState;
+  connectionEpoch: number;
   sendMessage: (
     payload: MessageSendPayload
   ) => Promise<MessageSendAcknowledgement>;
@@ -52,11 +59,12 @@ const SocketContext = createContext<SocketContextValue | undefined>(undefined);
 const SEND_TIMEOUT_MS = 10_000;
 
 export function SocketProvider({ children }: PropsWithChildren) {
-  const { accessToken } = useAuth();
+  const { accessToken, refreshAccessToken } = useAuth();
   const socketRef = useRef<EnveloSocket | null>(null);
   const messageListenersRef = useRef(new Set<NewMessageListener>());
   const [connectionState, setConnectionState] =
     useState<SocketConnectionState>('signed-out');
+  const [connectionEpoch, setConnectionEpoch] = useState(0);
 
   useEffect(() => {
     socketRef.current?.disconnect();
@@ -77,21 +85,32 @@ export function SocketProvider({ children }: PropsWithChildren) {
     setConnectionState('connecting');
     const socket: EnveloSocket = io(socketUrl, {
       auth: { token: accessToken },
-      reconnection: false,
+      autoConnect: false,
+      reconnection: true,
+      reconnectionAttempts: 10,
+      reconnectionDelay: 1_000,
+      reconnectionDelayMax: 10_000,
     });
     socketRef.current = socket;
 
     const handleConnect = (): void => {
       console.log(`Socket connected: ${socket.id}`);
       setConnectionState('connected');
+      setConnectionEpoch((epoch) => epoch + 1);
     };
     const handleDisconnect = (reason: string): void => {
       console.log(`Socket disconnected: ${reason}`);
-      setConnectionState('disconnected');
+      setConnectionState(socket.active ? 'reconnecting' : 'disconnected');
     };
     const handleConnectError = (error: Error): void => {
       console.warn(`Socket connection failed: ${error.message}`);
-      setConnectionState('error');
+      setConnectionState(socket.active ? 'reconnecting' : 'error');
+    };
+    const handleReconnectAttempt = (): void => {
+      setConnectionState('reconnecting');
+    };
+    const handleReconnectFailed = (): void => {
+      setConnectionState('disconnected');
     };
     const handleNewMessage: NewMessageListener = (message) => {
       for (const listener of messageListenersRef.current) listener(message);
@@ -101,16 +120,59 @@ export function SocketProvider({ children }: PropsWithChildren) {
     socket.on('disconnect', handleDisconnect);
     socket.on('connect_error', handleConnectError);
     socket.on('message:new', handleNewMessage);
+    socket.io.on('reconnect_attempt', handleReconnectAttempt);
+    socket.io.on('reconnect_failed', handleReconnectFailed);
+    socket.connect();
 
     return () => {
       socket.off('connect', handleConnect);
       socket.off('disconnect', handleDisconnect);
       socket.off('connect_error', handleConnectError);
       socket.off('message:new', handleNewMessage);
+      socket.io.off('reconnect_attempt', handleReconnectAttempt);
+      socket.io.off('reconnect_failed', handleReconnectFailed);
       socket.disconnect();
       if (socketRef.current === socket) socketRef.current = null;
     };
   }, [accessToken]);
+
+  const reconnectWhenForegrounded = useCallback(async (): Promise<void> => {
+    const socket = socketRef.current;
+    if (!accessToken || socket?.connected) return;
+
+    setConnectionState('reconnecting');
+
+    try {
+      const refreshedToken = await refreshAccessToken();
+      if (!refreshedToken) return;
+
+      // A new token recreates the socket through the accessToken effect above.
+      // If it is unchanged, explicitly resume the current client immediately.
+      if (refreshedToken === accessToken) {
+        const currentSocket = socketRef.current;
+        if (!currentSocket?.connected) {
+          currentSocket?.connect();
+        }
+      }
+    } catch {
+      setConnectionState('disconnected');
+    }
+  }, [accessToken, refreshAccessToken]);
+
+  useEffect(() => {
+    let previousAppState = AppState.currentState;
+    const subscription = AppState.addEventListener(
+      'change',
+      (nextAppState: AppStateStatus) => {
+        const returnedToForeground =
+          nextAppState === 'active' && previousAppState !== 'active';
+        previousAppState = nextAppState;
+        if (returnedToForeground) void reconnectWhenForegrounded();
+      }
+    );
+
+    return () => subscription.remove();
+  }, [reconnectWhenForegrounded]);
 
   const sendMessage = useCallback(
     (payload: MessageSendPayload): Promise<MessageSendAcknowledgement> =>
@@ -154,8 +216,13 @@ export function SocketProvider({ children }: PropsWithChildren) {
   );
 
   const value = useMemo(
-    () => ({ connectionState, sendMessage, subscribeToNewMessages }),
-    [connectionState, sendMessage, subscribeToNewMessages]
+    () => ({
+      connectionState,
+      connectionEpoch,
+      sendMessage,
+      subscribeToNewMessages,
+    }),
+    [connectionEpoch, connectionState, sendMessage, subscribeToNewMessages]
   );
 
   return (
