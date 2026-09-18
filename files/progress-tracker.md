@@ -174,12 +174,14 @@ Update this file after every meaningful implementation change.
 - Feature 11: Socket Reconnection & Connection Resilience implemented:
   - Re-enabled the app-level Socket.IO client's retry behavior with explicit bounded backoff: ten attempts, starting at one second and capping each delay at ten seconds. It now reports `reconnecting` separately from the terminal `disconnected` state once retries are exhausted.
   - Added a React Native `AppState` foreground listener. When the app returns to `active` with no live socket, it refreshes the existing authenticated session through `AuthContext` before reconnecting; refresh failures do not expose or log tokens and leave the composer unavailable rather than attempting a stale-token connection.
-  - Guarded the foreground refresh with an auth revision so sign-out wins if it happens while that refresh is in flight; the stale refresh result clears its tokens and cannot restore a session or reconnect the socket.
+  - Review follow-up: serialized refresh, sign-in, and sign-out storage mutations while retaining an auth revision for state application. Sign-out clears the UI immediately, then runs after any already-started refresh; a stale refresh cannot erase credentials from a newer sign-in or restore a signed-out session.
   - Made the socket client explicitly connect after listener setup, preserves the existing sign-out/unmount cleanup, and added a connection epoch so mounted chat screens can distinguish an initial connection from a later reconnection.
   - An open conversation now re-fetches the newest Feature 07 history page after each later successful connection and merges it with the existing durable-ID de-duplication helper. This preserves messages already on screen while recovering messages persisted during an outage.
   - Updated the existing composer state notice to show the understated `Reconnecting…` label; Send remains disabled for every state other than `connected`. No offline queue or optimistic sends were added.
   - Confirmed the socket server already runs `verifySocketToken` for every new connection and joins the authenticated user room, so reconnections need no backend, socket-server, Prisma, or migration changes.
   - Reviewed the Expo SDK 54 reference before implementation. `npx tsc --noEmit`, `npm run lint`, and final `npx prettier --write .` pass in `mobile/`. The six required two-device/device-network scenarios remain pending because they require real devices and a prolonged background/token-expiry interval.
+  - Review follow-up: a chat screen mounted before its first socket connection now reloads history when that initial connection completes, closing the small missed-message window between the REST history request and subscription readiness. The Feature 11 file map now names the actual `SocketContext` and chat component locations.
+  - Re-ran `npx tsc --noEmit` and `npm run lint` in `mobile/` after the review follow-ups; both pass.
 
 ## In Progress
 

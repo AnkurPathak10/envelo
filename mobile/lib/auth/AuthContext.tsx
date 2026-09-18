@@ -35,27 +35,31 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const authRevision = useRef(0);
-  useEffect(() => {
-    setSessionExpiredHandler(() => {
-      setAccessToken(null);
-      setUser(null);
-    });
-    void (async () => {
-      try {
-        const session = await refreshSession();
-        setAccessToken(session?.accessToken ?? null);
-        setUser(session?.user ?? null);
-      } finally {
-        setIsLoading(false);
-      }
-    })();
-    return () => setSessionExpiredHandler(undefined);
-  }, []);
-  const completeAuthentication = useCallback(async (response: AuthResponse) => {
-    await saveTokens(response);
-    setAccessToken(response.accessToken);
-    setUser(response.user);
-  }, []);
+  const authMutation = useRef(Promise.resolve());
+  const serializeAuthMutation = useCallback(
+    <T,>(operation: () => Promise<T>): Promise<T> => {
+      const previous = authMutation.current;
+      let release: () => void = () => undefined;
+      authMutation.current = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+
+      return previous.then(operation, operation).finally(release);
+    },
+    []
+  );
+  const completeAuthentication = useCallback(
+    async (response: AuthResponse) => {
+      const authenticationRevision = ++authRevision.current;
+      await serializeAuthMutation(async () => {
+        await saveTokens(response);
+        if (authenticationRevision !== authRevision.current) return;
+        setAccessToken(response.accessToken);
+        setUser(response.user);
+      });
+    },
+    [serializeAuthMutation]
+  );
   const authenticateWithSignIn = useCallback(
     async (input: SignInInput) => completeAuthentication(await signIn(input)),
     [completeAuthentication]
@@ -66,33 +70,49 @@ export function AuthProvider({ children }: PropsWithChildren) {
   );
   const refreshAccessToken = useCallback(async (): Promise<string | null> => {
     const refreshRevision = authRevision.current;
-    const session = await refreshSession();
-    if (refreshRevision !== authRevision.current) {
-      await clearTokens();
-      return null;
-    }
-    if (!session) {
-      setAccessToken(null);
-      setUser(null);
-      return null;
-    }
+    return serializeAuthMutation(async () => {
+      const session = await refreshSession();
+      if (refreshRevision !== authRevision.current) return null;
+      if (!session) {
+        setAccessToken(null);
+        setUser(null);
+        return null;
+      }
 
-    setAccessToken(session.accessToken);
-    setUser(session.user);
-    return session.accessToken;
-  }, []);
+      setAccessToken(session.accessToken);
+      setUser(session.user);
+      return session.accessToken;
+    });
+  }, [serializeAuthMutation]);
   const signOut = useCallback(async () => {
     authRevision.current += 1;
-    try {
-      await logout();
-    } catch {
-      /* Local logout still succeeds if the server is unavailable. */
-    } finally {
-      await clearTokens();
+    setAccessToken(null);
+    setUser(null);
+    await serializeAuthMutation(async () => {
+      try {
+        await logout();
+      } catch {
+        /* Local logout still succeeds if the server is unavailable. */
+      } finally {
+        await clearTokens();
+      }
+    });
+  }, [serializeAuthMutation]);
+  useEffect(() => {
+    setSessionExpiredHandler(() => {
+      authRevision.current += 1;
       setAccessToken(null);
       setUser(null);
-    }
-  }, []);
+    });
+    const initialRevision = authRevision.current;
+    void serializeAuthMutation(async () => {
+      const session = await refreshSession();
+      if (initialRevision !== authRevision.current) return;
+      setAccessToken(session?.accessToken ?? null);
+      setUser(session?.user ?? null);
+    }).finally(() => setIsLoading(false));
+    return () => setSessionExpiredHandler(undefined);
+  }, [serializeAuthMutation]);
   const value = useMemo(
     () => ({
       user,

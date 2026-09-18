@@ -151,19 +151,21 @@ Changes should be concentrated in the existing files from Feature
 ```text
 mobile/
   lib/
+    auth/
+      AuthContext.tsx       — reuses the existing session refresh flow
+                             before a foreground reconnect
     socket/
-      SocketProvider.tsx   — reconnection config, AppState listener,
+      SocketContext.tsx    — reconnection config, AppState listener,
                              token-refresh-before-reconnect logic,
                              expanded connection state
     api/
       conversations.ts     — no changes expected; reused as-is for
                              the post-reconnect history re-fetch
-  app/
-    (app)/
-      conversation/
-        [conversationId].tsx  — consumes the expanded connection
-                                 state; triggers history re-fetch on
-                                 reconnect if this screen is focused
+  components/
+    chat/
+      chat-screen.tsx      — triggers a history re-fetch after a later
+                             successful connection and merges by durable ID
+      message-composer.tsx — shows the reconnecting state and disables Send
 ```
 
 ## Security Notes

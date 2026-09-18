@@ -58,7 +58,7 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
   const [reloadVersion, setReloadVersion] = useState(0);
   const listRef = useRef<FlatList<RenderableTextMessage>>(null);
   const pendingScroll = useRef<{ animated: boolean } | null>(null);
-  const observedConnectionEpoch = useRef<number | null>(null);
+  const observedConnectionEpoch = useRef(connectionEpoch);
   const loadedConversationId = useRef<string | null>(null);
   const scheme = useColorScheme() ?? 'light';
   const c = colors[scheme];
@@ -111,11 +111,6 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
   }, [conversationId, reloadVersion, requestScrollToEnd]);
 
   useEffect(() => {
-    if (connectionEpoch === 0) return;
-    if (observedConnectionEpoch.current === null) {
-      observedConnectionEpoch.current = connectionEpoch;
-      return;
-    }
     if (observedConnectionEpoch.current === connectionEpoch) return;
 
     observedConnectionEpoch.current = connectionEpoch;
