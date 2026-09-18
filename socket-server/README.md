@@ -29,3 +29,15 @@ npm run verify:message-flow
 ```
 
 The script checks that both clients receive the same `message:new` payload returned by the sender acknowledgement, then confirms the message and recipient `SENT` status in the configured database. It always disconnects both sockets and Prisma before exiting.
+
+## Delivery and read-state verification
+
+Feature 12 adds authenticated `message:delivered` and `message:read` client events. Rows only move forward from `SENT` to `DELIVERED` to `READ`. Every row that actually changes emits an individual `message:status` event to the original sender's `user:<senderId>` room.
+
+With the backend and socket server running on their default ports, run:
+
+```powershell
+npm run verify:message-status
+```
+
+The script creates isolated sender, recipient, and outsider accounts in the configured database; verifies persisted status transitions, authorization, no-downgrade behavior, sender broadcasts, and both REST status fields; then deletes all temporary records. Override `TEST_SOCKET_URL` or `TEST_API_URL` when verifying servers on alternate ports.

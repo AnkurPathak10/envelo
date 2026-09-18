@@ -45,6 +45,11 @@ export function conversationListSelect(currentUserId: string) {
         senderId: true,
         content: true,
         createdAt: true,
+        statuses: {
+          where: { userId: { not: currentUserId } },
+          take: 1,
+          select: { status: true },
+        },
       },
     },
     _count: {
@@ -115,6 +120,7 @@ export function toConversationListItem(
           senderId: lastMessage.senderId,
           content: lastMessage.content,
           createdAt: lastMessage.createdAt.toISOString(),
+          status: lastMessage.statuses[0]?.status ?? null,
         }
       : null,
     unreadCount: conversation._count.messages,

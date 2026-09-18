@@ -1,27 +1,44 @@
-import { type Prisma } from "@prisma/client";
+import { MessageStatusType, type Prisma } from "@prisma/client";
 
 export const MESSAGE_PAGE_SIZE = 50;
 
-export const messageHistorySelect = {
-  id: true,
-  conversationId: true,
-  senderId: true,
-  content: true,
-  createdAt: true,
-} satisfies Prisma.MessageSelect;
+export function messageHistorySelect(currentUserId: string) {
+  return {
+    id: true,
+    conversationId: true,
+    senderId: true,
+    content: true,
+    createdAt: true,
+    statuses: {
+      where: { userId: { not: currentUserId } },
+      take: 1,
+      select: { status: true },
+    },
+  } satisfies Prisma.MessageSelect;
+}
 
-export type MessageHistoryItem = Prisma.MessageGetPayload<{
-  select: typeof messageHistorySelect;
+type SelectedHistoryMessage = Prisma.MessageGetPayload<{
+  select: ReturnType<typeof messageHistorySelect>;
 }>;
 
+export interface MessageHistoryItem {
+  id: string;
+  conversationId: string;
+  senderId: string;
+  content: string | null;
+  createdAt: string;
+  status: MessageStatusType | null;
+}
+
 export function toMessageHistoryItem(
-  message: MessageHistoryItem,
+  message: SelectedHistoryMessage,
 ): MessageHistoryItem {
   return {
     id: message.id,
     conversationId: message.conversationId,
     senderId: message.senderId,
     content: message.content,
-    createdAt: message.createdAt,
+    createdAt: message.createdAt.toISOString(),
+    status: message.statuses[0]?.status ?? null,
   };
 }

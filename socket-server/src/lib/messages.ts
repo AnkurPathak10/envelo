@@ -18,15 +18,32 @@ export interface TextMessagePayload {
 export type MessageSendAcknowledgement =
   { ok: true; message: TextMessagePayload } | { ok: false; error: string };
 
+export type MessageStatusAcknowledgement =
+  { success: true; updated: number } | { success: false; error: string };
+
+export interface MessageStatusPayload {
+  messageId: string;
+  status: "DELIVERED" | "READ";
+}
+
 export interface ClientToServerEvents {
   "message:send": (
     payload: unknown,
     acknowledge?: (result: MessageSendAcknowledgement) => void,
   ) => void;
+  "message:delivered": (
+    payload: unknown,
+    acknowledge?: (result: MessageStatusAcknowledgement) => void,
+  ) => void;
+  "message:read": (
+    payload: unknown,
+    acknowledge?: (result: MessageStatusAcknowledgement) => void,
+  ) => void;
 }
 
 export interface ServerToClientEvents {
   "message:new": (message: TextMessagePayload) => void;
+  "message:status": (status: MessageStatusPayload) => void;
 }
 
 export interface InterServerEvents {}

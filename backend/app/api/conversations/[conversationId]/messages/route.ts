@@ -68,7 +68,7 @@ export async function GET(request: NextRequest, context: MessageRouteContext) {
     cursor: cursor ? { id: cursor } : undefined,
     skip: cursor ? 1 : undefined,
     take: MESSAGE_PAGE_SIZE + 1,
-    select: messageHistorySelect,
+    select: messageHistorySelect(userId),
   });
 
   const hasNextPage = records.length > MESSAGE_PAGE_SIZE;

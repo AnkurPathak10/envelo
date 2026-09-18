@@ -4,6 +4,8 @@ import { createServer } from "node:http";
 import { Server } from "socket.io";
 
 import { verifySocketToken } from "./auth/verifySocketToken";
+import { registerMessageDeliveredHandler } from "./events/messageDelivered";
+import { registerMessageReadHandler } from "./events/messageRead";
 import { registerMessageHandlers } from "./events/messages";
 import { env } from "./lib/env";
 import type {
@@ -32,6 +34,8 @@ io.use(verifySocketToken);
 io.on("connection", (socket) => {
   socket.join(userRoom(socket.data.userId));
   registerMessageHandlers(io, socket);
+  registerMessageDeliveredHandler(io, socket);
+  registerMessageReadHandler(io, socket);
 
   console.log(`Socket connected: ${socket.id}, user: ${socket.data.userId}`);
 

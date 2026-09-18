@@ -4,11 +4,11 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
-- Features 03, 04, 06, 09, and 11 implemented - pending remaining manual real-device verification; Features 05, 07, 08, and 10 complete
+- Features 03, 04, 06, 09, and 11 implemented - pending remaining manual real-device verification; Features 05, 07, 08, 10, and 12 complete
 
 ## Current Goal
 
-- Implement Feature 12's Socket Delivery and Read State Foundation, then consume inbox metadata and read state in Feature 13's mobile live inbox
+- Implement Feature 13's Mobile Message Status Ticks, then add Feature 14's optimistic/offline sending and Feature 15's live mobile inbox
 
 ## Completed
 
@@ -186,6 +186,16 @@ Update this file after every meaningful implementation change.
   - Added an accessible `Disconnected. Tap to retry.` composer affordance that explicitly starts a fresh connection attempt while the terminal disconnected state is visible. The reconnecting label and send-disable behavior remain unchanged during that attempt.
   - After the network-recovery follow-up, final mobile Prettier, `npx tsc --noEmit`, `npm run lint`, and repository `git diff --check` all pass. The physical Test 5 re-run remains explicitly pending below.
 
+- Feature 12: Socket Delivery and Read State Foundation implemented:
+  - Added authenticated, Zod-validated `message:delivered` and `message:read` events with explicit success/error acknowledgements. Delivery batches accept 1–100 non-empty message IDs; read requests require a conversation ID and boundary message ID.
+  - Added shared `messageStatus.ts` transaction helpers. Delivery validates participation, silently skips a sender's own messages, and changes only `SENT → DELIVERED`; read validates conversation participation and the boundary message, then changes only the authenticated recipient's `SENT`/`DELIVERED` rows at or before the boundary timestamp to `READ`.
+  - Both updates use `updateManyAndReturn` inside one Prisma transaction, so acknowledgements and broadcasts include exactly the rows that changed. Existing `READ` rows can never be downgraded by a later delivery call.
+  - Added individual `message:status` broadcasts (`{ messageId, status }`) to each changed message's original sender room after commit. The recipient who initiated the transition is not echoed unless they independently share the sender room on another applicable message.
+  - Extended Feature 07 history and Feature 10 `lastMessage` selections with the other participant's status row, returning `SENT`, `DELIVERED`, `READ`, or unexpected-case `null`. History dates are now explicitly mapped to ISO strings; the existing unread-count query is unchanged.
+  - Added `verify:message-status`, a repeatable isolated Neon integration harness. It verified offline-recipient `SENT`, manual `DELIVERED`, timestamp-bounded `READ`, sender self-delivery no-op, outsider rejection for both events, foreign-conversation boundary rejection, no downgrade from `READ`, live sender broadcasts, and both REST status fields. All temporary users, conversations, messages, and statuses were deleted afterward.
+  - Backend `npx tsc --noEmit` and production `npm run build` pass. Socket-server generation/build passed after the source implementation; final source compilation and a separate strict type-check of the verification harness also pass after formatting. Required Prettier passes completed in both projects, and repository `git diff --check` passes.
+  - No mobile source, Prisma schema, or migration changed. Feature 13 will wire the mobile emissions, reconnect catch-up delivery, live status consumption, and Telegram-style clock/single-tick/double-tick UI.
+
 ## In Progress
 
 - Feature 03 manual real-device verification (signup, persistent session refresh, logout, and backend error states).
@@ -197,8 +207,9 @@ Update this file after every meaningful implementation change.
 
 ## Next Up
 
-- Feature 12: Socket Delivery and Read State Foundation.
-- Feature 13: Mobile Live Inbox and UX polish (live row movement, preview/timestamp, unread badge, and improved New conversation/header controls).
+- Feature 13: Mobile Message Status Ticks (Telegram-style clock, single tick, and double tick).
+- Feature 14: Optimistic Sending & Offline Queue.
+- Feature 15: Mobile Live Inbox and UX polish (live row movement, preview/timestamp, unread badge, and improved New conversation/header controls).
 
 ## Open Questions
 
@@ -210,7 +221,7 @@ Update this file after every meaningful implementation change.
   message queueing remains deferred
 - Conversation-list UX review: the current text-only New conversation action
   looks visually distorted/unfinished and must become a polished icon/button
-  during Feature 12's mobile inbox work.
+  during Feature 15's mobile inbox work.
 - Docker: Ankur wants to containerize `backend/` and
   `socket-server/` for local dev and deployment — timing TBD,
   planned for once `socket-server/` has real code to containerize
