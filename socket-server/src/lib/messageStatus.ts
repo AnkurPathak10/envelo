@@ -44,6 +44,10 @@ export async function markMessagesDelivered(
       },
     });
 
+    if (messages.length !== uniqueMessageIds.length) {
+      throw new MessageStatusAuthorizationError("Message not found");
+    }
+
     if (
       messages.some((message) => message.conversation.participants.length === 0)
     ) {
@@ -92,7 +96,7 @@ export async function markConversationRead(
 
     const boundaryMessage = await tx.message.findFirst({
       where: { id: upToMessageId, conversationId },
-      select: { createdAt: true },
+      select: { id: true, createdAt: true },
     });
     if (!boundaryMessage) {
       throw new MessageStatusAuthorizationError("Message not found");
@@ -105,7 +109,13 @@ export async function markConversationRead(
         message: {
           conversationId,
           senderId: { not: userId },
-          createdAt: { lte: boundaryMessage.createdAt },
+          OR: [
+            { createdAt: { lt: boundaryMessage.createdAt } },
+            {
+              createdAt: boundaryMessage.createdAt,
+              id: { lte: boundaryMessage.id },
+            },
+          ],
         },
       },
       data: { status: MessageStatusType.READ },

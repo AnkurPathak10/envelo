@@ -283,6 +283,55 @@ async function main(): Promise<void> {
       "READ message was downgraded by delivery.",
     );
 
+    const missingDelivery = await markDelivered(recipientSocket, [
+      randomUUID(),
+    ]);
+    assert(!missingDelivery.success, "Missing message ID was not rejected.");
+
+    const tiedCreatedAt = new Date(
+      new Date(sent.message.createdAt).getTime() - 1_000,
+    );
+    const tiedMessageIds = [
+      `feature12-a-${randomUUID()}`,
+      `feature12-b-${randomUUID()}`,
+    ];
+    await prisma.message.createMany({
+      data: tiedMessageIds.map((id, index) => ({
+        id,
+        conversationId: conversation.id,
+        senderId: sender.id,
+        content: `Equal timestamp ${index}`,
+        createdAt: tiedCreatedAt,
+      })),
+    });
+    await prisma.messageStatus.createMany({
+      data: tiedMessageIds.map((messageId) => ({
+        messageId,
+        userId: recipient.id,
+        status: MessageStatusType.SENT,
+      })),
+    });
+
+    const tiedRead = await markRead(
+      recipientSocket,
+      conversation.id,
+      tiedMessageIds[0],
+    );
+    assert(
+      tiedRead.success && tiedRead.updated === 1,
+      "Composite read boundary did not update exactly one tied message.",
+    );
+    const tiedStatuses = await prisma.messageStatus.findMany({
+      where: { messageId: { in: tiedMessageIds }, userId: recipient.id },
+      orderBy: { messageId: "asc" },
+      select: { status: true },
+    });
+    assert(
+      tiedStatuses[0]?.status === MessageStatusType.READ &&
+        tiedStatuses[1]?.status === MessageStatusType.SENT,
+      "Read boundary crossed the equal-timestamp ID tie-breaker.",
+    );
+
     const history = (await getJson(
       `/api/conversations/${conversation.id}/messages`,
       senderToken,
@@ -308,7 +357,7 @@ async function main(): Promise<void> {
     );
 
     console.log(
-      "Feature 12 verification passed: SENT, DELIVERED, READ, authorization, no-downgrade, broadcasts, and REST status fields.",
+      "Feature 12 verification passed: SENT, DELIVERED, READ, authorization, missing-ID rejection, composite boundaries, no-downgrade, broadcasts, and REST status fields.",
     );
   } finally {
     for (const socket of sockets) socket.disconnect();

@@ -195,6 +195,7 @@ Update this file after every meaningful implementation change.
   - Added `verify:message-status`, a repeatable isolated Neon integration harness. It verified offline-recipient `SENT`, manual `DELIVERED`, timestamp-bounded `READ`, sender self-delivery no-op, outsider rejection for both events, foreign-conversation boundary rejection, no downgrade from `READ`, live sender broadcasts, and both REST status fields. All temporary users, conversations, messages, and statuses were deleted afterward.
   - Backend `npx tsc --noEmit` and production `npm run build` pass. Socket-server generation/build passed after the source implementation; final source compilation and a separate strict type-check of the verification harness also pass after formatting. Required Prettier passes completed in both projects, and repository `git diff --check` passes.
   - No mobile source, Prisma schema, or migration changed. Feature 13 will wire the mobile emissions, reconnect catch-up delivery, live status consumption, and Telegram-style clock/single-tick/double-tick UI.
+  - Review follow-up: delivery batches now reject any missing message ID instead of treating an all-missing or partially missing batch as a successful no-op. Read updates now use the same composite chronological boundary as history (`createdAt` first, then `id`), preventing equal-timestamp messages after the selected boundary from being marked read. The live Neon harness now covers both regressions and passes; temporary records were cleaned afterward.
 
 ## In Progress
 
