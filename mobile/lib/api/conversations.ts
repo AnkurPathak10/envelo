@@ -11,7 +11,17 @@ export interface ConversationListItem {
   createdAt: string;
   updatedAt: string;
   participant: ConversationParticipant;
+  lastMessage: {
+    id: string;
+    senderId: string;
+    content: string | null;
+    createdAt: string;
+    status: MessageStatus | null;
+  } | null;
+  unreadCount: number;
 }
+
+export type MessageStatus = 'SENT' | 'DELIVERED' | 'READ';
 
 export interface TextMessage {
   id: string;
@@ -19,6 +29,7 @@ export interface TextMessage {
   senderId: string;
   content: string | null;
   createdAt: string;
+  status: MessageStatus | null;
 }
 
 export interface MessageHistoryPage {

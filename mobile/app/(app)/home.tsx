@@ -21,6 +21,7 @@ import {
   type ConversationListItem,
 } from '@/lib/api/conversations';
 import { useAuth } from '@/lib/auth/AuthContext';
+import { useSocket } from '@/lib/socket/SocketContext';
 
 function getErrorMessage(error: unknown): string {
   return error instanceof ApiError
@@ -30,6 +31,7 @@ function getErrorMessage(error: unknown): string {
 
 export default function HomeScreen() {
   const { signOut } = useAuth();
+  const { acknowledgeDeliveredMessages } = useSocket();
   const [conversations, setConversations] = useState<ConversationListItem[]>(
     []
   );
@@ -64,6 +66,11 @@ export default function HomeScreen() {
       void getConversations()
         .then((items) => {
           if (!isActive) return;
+          acknowledgeDeliveredMessages(
+            items.flatMap((item) =>
+              item.lastMessage ? [item.lastMessage] : []
+            )
+          );
           setConversations(items);
           hasLoaded.current = true;
         })
@@ -78,7 +85,7 @@ export default function HomeScreen() {
       return () => {
         isActive = false;
       };
-    }, [reloadVersion])
+    }, [acknowledgeDeliveredMessages, reloadVersion])
   );
 
   const retry = useCallback(() => {

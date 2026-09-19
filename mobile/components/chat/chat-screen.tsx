@@ -1,7 +1,10 @@
 import { router } from 'expo-router';
+import { useIsFocused } from '@react-navigation/native';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  AppState,
+  type AppStateStatus,
   FlatList,
   KeyboardAvoidingView,
   Platform,
@@ -17,13 +20,14 @@ import { MessageBubble } from '@/components/chat/message-bubble';
 import { MessageComposer } from '@/components/chat/message-composer';
 import { colors, radius } from '@/constants/theme';
 import { ApiError } from '@/lib/api/client';
-import { getMessageHistory } from '@/lib/api/conversations';
+import { getMessageHistory, type TextMessage } from '@/lib/api/conversations';
 import { useAuth } from '@/lib/auth/AuthContext';
 import {
   mergeTextMessages,
   type RenderableTextMessage,
+  updateMessageStatus,
 } from '@/lib/chat/messages';
-import { useSocket } from '@/lib/socket/SocketContext';
+import { useSocket, type SocketTextMessage } from '@/lib/socket/SocketContext';
 
 interface ChatScreenProps {
   conversationId: string;
@@ -37,14 +41,38 @@ function historyErrorMessage(error: unknown): string {
     : 'Unable to load messages. Please try again.';
 }
 
+function withInitialStatus(
+  message: SocketTextMessage,
+  currentUserId: string | undefined
+): TextMessage {
+  return {
+    ...message,
+    status: message.senderId === currentUserId ? 'SENT' : null,
+  };
+}
+
+function isCurrentAppViewVisible(): boolean {
+  if (Platform.OS === 'web') {
+    return typeof document !== 'undefined'
+      ? document.visibilityState === 'visible'
+      : false;
+  }
+
+  return AppState.currentState === 'active';
+}
+
 export function ChatScreen({ conversationId }: ChatScreenProps) {
   const { user } = useAuth();
+  const isFocused = useIsFocused();
   const {
+    acknowledgeDeliveredMessages,
     connectionState,
     connectionEpoch,
+    markConversationRead,
     retryConnection,
     sendMessage,
     subscribeToNewMessages,
+    subscribeToMessageStatuses,
   } = useSocket();
   const [messages, setMessages] = useState<RenderableTextMessage[]>([]);
   const [initialState, setInitialState] =
@@ -57,6 +85,9 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
   const [isSending, setIsSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [reloadVersion, setReloadVersion] = useState(0);
+  const [isAppViewVisible, setIsAppViewVisible] = useState(
+    isCurrentAppViewVisible
+  );
   const listRef = useRef<FlatList<RenderableTextMessage>>(null);
   const pendingScroll = useRef<{ animated: boolean } | null>(null);
   const observedConnectionEpoch = useRef(connectionEpoch);
@@ -67,6 +98,34 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
 
   const requestScrollToEnd = useCallback((animated: boolean): void => {
     pendingScroll.current = { animated };
+  }, []);
+
+  useEffect(() => {
+    if (Platform.OS === 'web') {
+      if (typeof document === 'undefined') return;
+
+      const handleVisibilityChange = (): void => {
+        setIsAppViewVisible(document.visibilityState === 'visible');
+      };
+      handleVisibilityChange();
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+      return () => {
+        document.removeEventListener(
+          'visibilitychange',
+          handleVisibilityChange
+        );
+      };
+    }
+
+    const handleAppStateChange = (nextState: AppStateStatus): void => {
+      setIsAppViewVisible(nextState === 'active');
+    };
+    handleAppStateChange(AppState.currentState);
+    const subscription = AppState.addEventListener(
+      'change',
+      handleAppStateChange
+    );
+    return () => subscription.remove();
   }, []);
 
   useEffect(() => {
@@ -85,6 +144,7 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
     void getMessageHistory(conversationId)
       .then((page) => {
         if (!isActive) return;
+        acknowledgeDeliveredMessages(page.messages);
         setMessages((current) => mergeTextMessages(current, page.messages));
         setNextCursor(page.nextCursor);
         loadedConversationId.current = conversationId;
@@ -109,7 +169,12 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
     return () => {
       isActive = false;
     };
-  }, [conversationId, reloadVersion, requestScrollToEnd]);
+  }, [
+    acknowledgeDeliveredMessages,
+    conversationId,
+    reloadVersion,
+    requestScrollToEnd,
+  ]);
 
   useEffect(() => {
     if (observedConnectionEpoch.current === connectionEpoch) return;
@@ -122,11 +187,55 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
     () =>
       subscribeToNewMessages((message) => {
         if (message.conversationId !== conversationId) return;
-        setMessages((current) => mergeTextMessages(current, [message]));
+        setMessages((current) =>
+          mergeTextMessages(current, [withInitialStatus(message, user?.id)])
+        );
         requestScrollToEnd(true);
       }),
-    [conversationId, requestScrollToEnd, subscribeToNewMessages]
+    [conversationId, requestScrollToEnd, subscribeToNewMessages, user?.id]
   );
+
+  useEffect(
+    () =>
+      subscribeToMessageStatuses(({ messageId, status }) => {
+        setMessages((current) =>
+          updateMessageStatus(current, messageId, status)
+        );
+      }),
+    [subscribeToMessageStatuses]
+  );
+
+  let latestIncomingMessageId: string | null = null;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    if (messages[index].senderId !== user?.id) {
+      latestIncomingMessageId = messages[index].id;
+      break;
+    }
+  }
+
+  useEffect(() => {
+    if (
+      !isFocused ||
+      !isAppViewVisible ||
+      !isCurrentAppViewVisible() ||
+      connectionState !== 'connected' ||
+      !latestIncomingMessageId
+    ) {
+      return;
+    }
+
+    void markConversationRead({
+      conversationId,
+      upToMessageId: latestIncomingMessageId,
+    }).catch(() => undefined);
+  }, [
+    connectionState,
+    conversationId,
+    isAppViewVisible,
+    isFocused,
+    latestIncomingMessageId,
+    markConversationRead,
+  ]);
 
   const loadEarlier = useCallback(async () => {
     if (!nextCursor || isLoadingEarlier) return;
@@ -136,6 +245,7 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
 
     try {
       const page = await getMessageHistory(conversationId, nextCursor);
+      acknowledgeDeliveredMessages(page.messages);
       setMessages((current) => mergeTextMessages(current, page.messages));
       setNextCursor(page.nextCursor);
     } catch (error: unknown) {
@@ -143,7 +253,12 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
     } finally {
       setIsLoadingEarlier(false);
     }
-  }, [conversationId, isLoadingEarlier, nextCursor]);
+  }, [
+    acknowledgeDeliveredMessages,
+    conversationId,
+    isLoadingEarlier,
+    nextCursor,
+  ]);
 
   const sendDraft = useCallback(async () => {
     const content = draft.trim();
@@ -161,7 +276,9 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
       }
 
       setMessages((current) =>
-        mergeTextMessages(current, [acknowledgement.message])
+        mergeTextMessages(current, [
+          withInitialStatus(acknowledgement.message, user?.id),
+        ])
       );
       setDraft((current) => (current === draftAtSend ? '' : current));
       requestScrollToEnd(true);
@@ -177,6 +294,7 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
     isSending,
     requestScrollToEnd,
     sendMessage,
+    user?.id,
   ]);
 
   const handleContentSizeChange = useCallback(() => {

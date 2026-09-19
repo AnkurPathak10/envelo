@@ -4,11 +4,11 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
-- Features 03, 04, 06, 09, and 11 implemented - pending remaining manual real-device verification; Features 05, 07, 08, 10, and 12 complete
+- Features 03, 04, 06, 09, 11, and 13 implemented - pending remaining manual real-device verification; Features 05, 07, 08, 10, and 12 complete
 
 ## Current Goal
 
-- Implement Feature 13's Mobile Message Status Ticks, then add Feature 14's optimistic/offline sending and Feature 15's live mobile inbox
+- Implement Feature 14's optimistic/offline sending, then Feature 15's live mobile inbox
 
 ## Completed
 
@@ -197,6 +197,15 @@ Update this file after every meaningful implementation change.
   - No mobile source, Prisma schema, or migration changed. Feature 13 will wire the mobile emissions, reconnect catch-up delivery, live status consumption, and Telegram-style clock/single-tick/double-tick UI.
   - Review follow-up: delivery batches now reject any missing message ID instead of treating an all-missing or partially missing batch as a successful no-op. Read updates now use the same composite chronological boundary as history (`createdAt` first, then `id`), preventing equal-timestamp messages after the selected boundary from being marked read. The live Neon harness now covers both regressions and passes; temporary records were cleaned afterward.
 
+- Feature 13: Mobile Message Status Ticks implemented:
+  - Extended the mobile message contract with nullable `SENT`, `DELIVERED`, and `READ` status data. Socket-created messages are normalized to `SENT` for the sender and `null` for the recipient until durable REST data or a live status update supplies the authoritative state.
+  - Added provider-level `message:delivered`, `message:read`, and `message:status` contracts. Incoming live messages are acknowledged even when their chat screen is closed, while a 300 ms set-backed batch combines bursts and caps every delivery event at the server's 100-ID limit. Pending batches survive temporary disconnection and flush after reconnection; no persistent “already acknowledged” tracking was introduced.
+  - Every chat history path now queues incoming messages for delivery acknowledgement: initial load, Feature 11 reconnect catch-up, and Load earlier pagination. Inbox loading also acknowledges incoming latest-message previews, covering the required fully-closed-app case where Socket.IO cannot replay an event that occurred before the new connection.
+  - Focused chat screens emit `message:read` through the latest loaded incoming-message boundary on initial focus, reconnect, and each newly received incoming message. Read emission first flushes the current delivery batch so the server sees delivery before read on the same ordered socket transport. Native reads additionally require `AppState === active`, and web reads require a visible browser tab; returning to a visible focused chat acknowledges the newest pending incoming boundary.
+  - Chat screens subscribe to `message:status` and update the matching local message without a REST re-fetch. Both live updates and later history merges preserve monotonic status order, so stale data cannot visually downgrade `READ` to `DELIVERED` or `SENT`.
+  - Outgoing bubbles render a single `@expo/vector-icons` check beside the timestamp for both `SENT` and `DELIVERED`, and a double check for `READ`; the clock is reserved for Feature 14's future local pending state. Incoming bubbles render no status icon. Real-device follow-up increased the icon to 14 px and uses the bubble's text color at reduced opacity for legible contrast in both themes.
+  - Reviewed the Expo SDK 54 reference before implementation. Final `npx prettier --write .`, `npx tsc --noEmit`, `npm run lint`, and repository `git diff --check` pass. No backend, socket-server, Prisma schema, migration, dependency, auth/token, or offline-queue changes were made.
+
 ## In Progress
 
 - Feature 03 manual real-device verification (signup, persistent session refresh, logout, and backend error states).
@@ -205,10 +214,10 @@ Update this file after every meaningful implementation change.
 - Feature 09 remaining two-device verification: complete sender de-duplication, reload/offline-recipient persistence, validation, disconnected draft retention, pagination over 50 messages, keyboard/light/dark layout, sign-out socket cleanup, and account isolation.
 - Feature 09 review follow-up: removed the web `localStorage` token fallback after security review. Android/iOS continue using Expo SecureStore; web tokens now exist only in module memory for the active page lifecycle and are cleared on reload. Persistent web login remains intentionally deferred until the backend owns an HttpOnly refresh-cookie flow. Feature 11 now supplies the bounded Socket.IO reconnection policy; offline message queueing remains intentionally deferred.
 - Feature 11 manual two-device verification: re-run Test 5 by exhausting all ten retries in airplane mode and then restoring connectivity while the app stays foregrounded; confirm both automatic NetInfo recovery and the manual disconnected-state retry. The other pending scenarios cover foreground recovery, expired-token refresh, missed-message history re-sync, and sign-out during reconnecting.
+- Feature 13 manual two-device verification: re-validate `SENT`/`DELIVERED` as a legible single tick, focused-chat `READ` as a double tick, inbox delivery, background/reconnect catch-up, absence of ticks on incoming bubbles, and light/dark contrast. Confirm native background state and hidden browser tabs defer read acknowledgement until visibility returns. The implementation and static checks are complete; this follow-up real-device/browser verification remains pending.
 
 ## Next Up
 
-- Feature 13: Mobile Message Status Ticks (Telegram-style clock, single tick, and double tick).
 - Feature 14: Optimistic Sending & Offline Queue.
 - Feature 15: Mobile Live Inbox and UX polish (live row movement, preview/timestamp, unread badge, and improved New conversation/header controls).
 
