@@ -1,13 +1,28 @@
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
 
-const ACCESS_TOKEN_KEY = 'envelo_access_token';
-const REFRESH_TOKEN_KEY = 'envelo_refresh_token';
+const AUTH_SESSION_KEY = 'envelo_auth_session_v2';
+const LEGACY_ACCESS_TOKEN_KEY = 'envelo_access_token';
+const LEGACY_REFRESH_TOKEN_KEY = 'envelo_refresh_token';
 const webTokens = new Map<string, string>();
 
 export interface AuthTokens {
   accessToken: string;
   refreshToken: string;
+  userId: string;
+}
+
+function isAuthTokens(value: unknown): value is AuthTokens {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Partial<AuthTokens>;
+  return (
+    typeof candidate.accessToken === 'string' &&
+    candidate.accessToken.length > 0 &&
+    typeof candidate.refreshToken === 'string' &&
+    candidate.refreshToken.length > 0 &&
+    typeof candidate.userId === 'string' &&
+    candidate.userId.length > 0
+  );
 }
 
 async function getItem(key: string): Promise<string | null> {
@@ -37,24 +52,42 @@ async function deleteItem(key: string): Promise<void> {
 }
 
 export async function getTokens(): Promise<AuthTokens | null> {
-  const [accessToken, refreshToken] = await Promise.all([
-    getItem(ACCESS_TOKEN_KEY),
-    getItem(REFRESH_TOKEN_KEY),
-  ]);
+  const stored = await getItem(AUTH_SESSION_KEY);
+  if (!stored) return null;
 
-  return accessToken && refreshToken ? { accessToken, refreshToken } : null;
+  try {
+    const parsed: unknown = JSON.parse(stored);
+    if (isAuthTokens(parsed)) return parsed;
+  } catch {
+    // Invalid or interrupted session records are discarded below.
+  }
+
+  await deleteItem(AUTH_SESSION_KEY);
+  return null;
 }
 
-export async function saveTokens(tokens: AuthTokens): Promise<void> {
-  await Promise.all([
-    setItem(ACCESS_TOKEN_KEY, tokens.accessToken),
-    setItem(REFRESH_TOKEN_KEY, tokens.refreshToken),
-  ]);
+export async function saveTokens(
+  tokens: Pick<AuthTokens, 'accessToken' | 'refreshToken'>,
+  userId: string
+): Promise<void> {
+  await setItem(
+    AUTH_SESSION_KEY,
+    JSON.stringify({
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+      userId,
+    } satisfies AuthTokens)
+  );
 }
 
 export async function clearTokens(): Promise<void> {
-  await Promise.all([
-    deleteItem(ACCESS_TOKEN_KEY),
-    deleteItem(REFRESH_TOKEN_KEY),
+  const deletions = await Promise.allSettled([
+    deleteItem(AUTH_SESSION_KEY),
+    deleteItem(LEGACY_ACCESS_TOKEN_KEY),
+    deleteItem(LEGACY_REFRESH_TOKEN_KEY),
   ]);
+  const failedDeletion = deletions.find(
+    (result): result is PromiseRejectedResult => result.status === 'rejected'
+  );
+  if (failedDeletion) throw failedDeletion.reason;
 }

@@ -57,10 +57,22 @@ export function AuthProvider({ children }: PropsWithChildren) {
     async (response: AuthResponse) => {
       const authenticationRevision = ++authRevision.current;
       await serializeAuthMutation(async () => {
-        await Promise.all([
-          saveTokens(response),
+        const writes = await Promise.allSettled([
+          saveTokens(response, response.user.id),
           saveCachedUser(response.user),
         ]);
+        const failedWrite = writes.find(
+          (result): result is PromiseRejectedResult =>
+            result.status === 'rejected'
+        );
+        if (failedWrite) {
+          await Promise.allSettled([clearTokens(), clearCachedUser()]);
+          if (authenticationRevision === authRevision.current) {
+            setAccessToken(null);
+            setUser(null);
+          }
+          throw failedWrite.reason;
+        }
         if (authenticationRevision !== authRevision.current) return;
         setAccessToken(response.accessToken);
         setUser(response.user);
@@ -88,7 +100,14 @@ export function AuthProvider({ children }: PropsWithChildren) {
         return null;
       }
 
-      await saveCachedUser(session.user);
+      try {
+        await saveCachedUser(session.user);
+      } catch (error: unknown) {
+        await Promise.allSettled([clearTokens(), clearCachedUser()]);
+        setAccessToken(null);
+        setUser(null);
+        throw error;
+      }
       setAccessToken(session.accessToken);
       setUser(session.user);
       return session.accessToken;
@@ -104,7 +123,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
       } catch {
         /* Local logout still succeeds if the server is unavailable. */
       } finally {
-        await Promise.all([clearTokens(), clearCachedUser()]);
+        await Promise.allSettled([clearTokens(), clearCachedUser()]);
       }
     });
   }, [serializeAuthMutation]);
@@ -123,12 +142,16 @@ export function AuthProvider({ children }: PropsWithChildren) {
       ]);
       if (initialRevision !== authRevision.current) return;
 
-      if (tokens && cachedUser) {
+      const hasMatchingCachedSession =
+        tokens !== null &&
+        cachedUser !== null &&
+        tokens.userId === cachedUser.id;
+      if (hasMatchingCachedSession) {
         setAccessToken(tokens.accessToken);
         setUser(cachedUser);
         setIsLoading(false);
-      } else if (!tokens) {
-        await clearCachedUser();
+      } else if (tokens || cachedUser) {
+        await Promise.allSettled([clearTokens(), clearCachedUser()]);
       }
 
       try {
@@ -146,7 +169,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
         setUser(session.user);
       } catch {
         // Keep the locally restored session during a cold offline start.
-        if (!tokens || !cachedUser) {
+        if (!hasMatchingCachedSession) {
           setAccessToken(null);
           setUser(null);
         }

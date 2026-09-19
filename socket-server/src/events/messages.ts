@@ -15,8 +15,10 @@ async function findExistingClientMessage(
   senderId: string,
   clientMessageId: string,
 ) {
-  return prisma.message.findFirst({
-    where: { senderId, clientMessageId },
+  return prisma.message.findUnique({
+    where: {
+      senderId_clientMessageId: { senderId, clientMessageId },
+    },
     select: textMessageSelect,
   });
 }

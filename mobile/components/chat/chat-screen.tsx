@@ -281,17 +281,33 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
 
   useEffect(() => {
     const conversationPendingMessages = pendingMessages
-      .filter((message) => message.conversationId === conversationId)
+      .filter(
+        (message) =>
+          message.conversationId === conversationId &&
+          message.senderId === user?.id
+      )
       .map(toPendingTextMessage);
-    if (conversationPendingMessages.length === 0) return;
+    const pendingClientIds = new Set(
+      conversationPendingMessages.map((message) => message.clientMessageId)
+    );
 
     setMessages((current) =>
-      mergeTextMessages(current, conversationPendingMessages)
+      mergeTextMessages(
+        current.filter(
+          (message) =>
+            message.status !== 'PENDING' ||
+            (message.clientMessageId !== null &&
+              message.clientMessageId !== undefined &&
+              pendingClientIds.has(message.clientMessageId))
+        ),
+        conversationPendingMessages
+      )
     );
+    if (conversationPendingMessages.length === 0) return;
     setInitialState((current) =>
       current === 'loading' || current === 'error' ? 'loaded' : current
     );
-  }, [conversationId, pendingMessages]);
+  }, [conversationId, pendingMessages, user?.id]);
 
   useEffect(
     () =>

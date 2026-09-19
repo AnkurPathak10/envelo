@@ -14,64 +14,66 @@ datasource db {
 }
 
 model User {
-  id            String    @id @default(cuid())
-  email         String    @unique
-  passwordHash  String
-  displayName   String
-  avatarUrl     String?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  displayName  String
+  avatarUrl    String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
-  refreshTokens        RefreshToken[]
-  conversations        ConversationParticipant[]
-  messagesSent         Message[]        @relation("MessagesSent")
-  messageStatuses      MessageStatus[]
+  refreshTokens   RefreshToken[]
+  conversations   ConversationParticipant[]
+  messagesSent    Message[]                 @relation("MessagesSent")
+  messageStatuses MessageStatus[]
 }
 
 model RefreshToken {
-  id          String    @id @default(cuid())
-  tokenHash   String    @unique
-  userId      String
-  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  expiresAt   DateTime
-  revokedAt   DateTime?
-  createdAt   DateTime  @default(now())
+  id        String    @id @default(cuid())
+  tokenHash String    @unique
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
 }
 
 model Conversation {
-  id            String    @id @default(cuid())
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  participants  ConversationParticipant[]
-  messages      Message[]
+  participants ConversationParticipant[]
+  messages     Message[]
 
   directKey String? @unique
 }
 
 model ConversationParticipant {
-  id              String        @id @default(cuid())
-  conversationId  String
-  conversation    Conversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  userId          String
-  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  joinedAt        DateTime      @default(now())
+  id             String       @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  joinedAt       DateTime     @default(now())
 
   @@unique([conversationId, userId])
 }
 
 model Message {
-  id              String        @id @default(cuid())
-  clientMessageId String?       @unique
+  id              String       @id @default(cuid())
+  clientMessageId String?
   conversationId  String
-  conversation    Conversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  conversation    Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   senderId        String
-  sender          User          @relation("MessagesSent", fields: [senderId], references: [id], onDelete: Cascade)
+  sender          User         @relation("MessagesSent", fields: [senderId], references: [id], onDelete: Cascade)
   content         String?
   mediaUrl        String?
-  createdAt       DateTime      @default(now())
+  createdAt       DateTime     @default(now())
 
-  statuses        MessageStatus[]
+  statuses MessageStatus[]
+
+  @@unique([senderId, clientMessageId])
 }
 
 enum MessageStatusType {
@@ -81,13 +83,13 @@ enum MessageStatusType {
 }
 
 model MessageStatus {
-  id          String              @id @default(cuid())
-  messageId   String
-  message     Message             @relation(fields: [messageId], references: [id], onDelete: Cascade)
-  userId      String
-  user        User                @relation(fields: [userId], references: [id], onDelete: Cascade)
-  status      MessageStatusType
-  updatedAt   DateTime            @updatedAt
+  id        String            @id @default(cuid())
+  messageId String
+  message   Message           @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status    MessageStatusType
+  updatedAt DateTime          @updatedAt
 
   @@unique([messageId, userId])
 }

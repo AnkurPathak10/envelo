@@ -106,6 +106,37 @@ const DELIVERY_RETRY_BASE_DELAY_MS = 500;
 const MAX_DELIVERY_RETRIES = 3;
 const MAX_DELIVERY_BATCH_SIZE = 100;
 
+function sendMessageThroughSocket(
+  socket: EnveloSocket,
+  payload: MessageSendPayload
+): Promise<MessageSendAcknowledgement> {
+  return new Promise((resolve, reject) => {
+    if (!socket.connected) {
+      reject(new Error('Socket is disconnected.'));
+      return;
+    }
+
+    const cleanup = (): void => {
+      clearTimeout(timeout);
+      socket.off('disconnect', handleDisconnect);
+    };
+    const handleDisconnect = (): void => {
+      cleanup();
+      reject(new Error('Socket disconnected before acknowledgement.'));
+    };
+    const timeout = setTimeout(() => {
+      cleanup();
+      reject(new Error('Message acknowledgement timed out.'));
+    }, SEND_TIMEOUT_MS);
+
+    socket.once('disconnect', handleDisconnect);
+    socket.emit('message:send', payload, (result) => {
+      cleanup();
+      resolve(result);
+    });
+  });
+}
+
 export function SocketProvider({ children }: PropsWithChildren) {
   const { accessToken, refreshAccessToken, user } = useAuth();
   const currentUserIdRef = useRef(user?.id);
@@ -361,33 +392,11 @@ export function SocketProvider({ children }: PropsWithChildren) {
   }, [reconnectWhenForegrounded]);
 
   const sendMessage = useCallback(
-    (payload: MessageSendPayload): Promise<MessageSendAcknowledgement> =>
-      new Promise((resolve, reject) => {
-        const socket = socketRef.current;
-        if (!socket?.connected) {
-          reject(new Error('Socket is disconnected.'));
-          return;
-        }
-
-        const cleanup = (): void => {
-          clearTimeout(timeout);
-          socket.off('disconnect', handleDisconnect);
-        };
-        const handleDisconnect = (): void => {
-          cleanup();
-          reject(new Error('Socket disconnected before acknowledgement.'));
-        };
-        const timeout = setTimeout(() => {
-          cleanup();
-          reject(new Error('Message acknowledgement timed out.'));
-        }, SEND_TIMEOUT_MS);
-
-        socket.once('disconnect', handleDisconnect);
-        socket.emit('message:send', payload, (result) => {
-          cleanup();
-          resolve(result);
-        });
-      }),
+    (payload: MessageSendPayload): Promise<MessageSendAcknowledgement> => {
+      const socket = socketRef.current;
+      if (!socket) return Promise.reject(new Error('Socket is disconnected.'));
+      return sendMessageThroughSocket(socket, payload);
+    },
     []
   );
 
@@ -413,17 +422,23 @@ export function SocketProvider({ children }: PropsWithChildren) {
     }
 
     const senderId = user?.id;
-    if (!senderId || !socketRef.current?.connected) return;
+    const flushSocket = socketRef.current;
+    if (!senderId || !flushSocket?.connected) return;
 
     isPendingQueueFlushRunningRef.current = true;
     pendingQueueFlushRequestedRef.current = false;
     try {
       const flushRevision = pendingMutationRevisionRef.current;
       const queuedMessages = await getPendingMessages(senderId);
+      if (
+        currentUserIdRef.current !== senderId ||
+        socketRef.current !== flushSocket ||
+        !flushSocket.connected
+      ) {
+        return;
+      }
       if (flushRevision === pendingMutationRevisionRef.current) {
-        if (currentUserIdRef.current === senderId) {
-          setPendingMessages(queuedMessages);
-        }
+        setPendingMessages(queuedMessages);
       }
 
       const byConversation = new Map<string, PendingMessage[]>();
@@ -437,14 +452,23 @@ export function SocketProvider({ children }: PropsWithChildren) {
       await Promise.all(
         [...byConversation.values()].map(async (conversationMessages) => {
           for (const pendingMessage of conversationMessages) {
-            if (!socketRef.current?.connected) break;
+            if (
+              currentUserIdRef.current !== senderId ||
+              socketRef.current !== flushSocket ||
+              !flushSocket.connected
+            ) {
+              break;
+            }
 
             try {
-              const acknowledgement = await sendMessage({
-                conversationId: pendingMessage.conversationId,
-                content: pendingMessage.content,
-                clientMessageId: pendingMessage.clientMessageId,
-              });
+              const acknowledgement = await sendMessageThroughSocket(
+                flushSocket,
+                {
+                  conversationId: pendingMessage.conversationId,
+                  content: pendingMessage.content,
+                  clientMessageId: pendingMessage.clientMessageId,
+                }
+              );
               if (!acknowledgement.ok) break;
 
               await confirmPendingMessage(pendingMessage.clientMessageId);
@@ -465,7 +489,7 @@ export function SocketProvider({ children }: PropsWithChildren) {
         pendingQueueFlushRef.current();
       }
     }
-  }, [confirmPendingMessage, sendMessage, user?.id]);
+  }, [confirmPendingMessage, user?.id]);
   pendingQueueFlushRef.current = () => {
     void flushPendingQueue();
   };

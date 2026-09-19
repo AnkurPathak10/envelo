@@ -38,8 +38,12 @@ function userKeyPart(userId: string): string {
   return encodeURIComponent(userId);
 }
 
+function messageKeyPrefix(userId: string): string {
+  return `${MESSAGE_CACHE_PREFIX}${userKeyPart(userId)}:`;
+}
+
 function messageKey(userId: string, conversationId: string): string {
-  return `${MESSAGE_CACHE_PREFIX}${userKeyPart(userId)}:${encodeURIComponent(conversationId)}`;
+  return `${messageKeyPrefix(userId)}${encodeURIComponent(conversationId)}`;
 }
 
 function indexKey(userId: string): string {
@@ -236,16 +240,68 @@ export function retainCachedMessageHistories(
 ): Promise<void> {
   return mutateStorage(async () => {
     const allowed = new Set(conversationIds);
-    const index = await readIndex(userId);
-    const removed = index.filter((entry) => !allowed.has(entry.conversationId));
+    const prefix = messageKeyPrefix(userId);
+    const storedKeys = (await AsyncStorage.getAllKeys()).filter((key) =>
+      key.startsWith(prefix)
+    );
+    const keyByConversationId = new Map<string, string>();
+    const malformedKeys: string[] = [];
+    for (const key of storedKeys) {
+      try {
+        const conversationId = decodeURIComponent(key.slice(prefix.length));
+        if (!conversationId) {
+          malformedKeys.push(key);
+          continue;
+        }
+        keyByConversationId.set(conversationId, key);
+      } catch {
+        malformedKeys.push(key);
+      }
+    }
+
+    const unauthorizedKeys = [...keyByConversationId]
+      .filter(([conversationId]) => !allowed.has(conversationId))
+      .map(([, key]) => key);
     await Promise.all(
-      removed.map((entry) =>
+      [...malformedKeys, ...unauthorizedKeys].map((key) =>
+        AsyncStorage.removeItem(key)
+      )
+    );
+
+    const index = await readIndex(userId);
+    const normalizedIndex: MessageCacheIndexEntry[] = [];
+    const indexedConversationIds = new Set<string>();
+    for (const entry of index) {
+      if (
+        allowed.has(entry.conversationId) &&
+        keyByConversationId.has(entry.conversationId) &&
+        !indexedConversationIds.has(entry.conversationId)
+      ) {
+        normalizedIndex.push(entry);
+        indexedConversationIds.add(entry.conversationId);
+      }
+    }
+    for (const conversationId of keyByConversationId.keys()) {
+      if (
+        allowed.has(conversationId) &&
+        !indexedConversationIds.has(conversationId)
+      ) {
+        normalizedIndex.push({
+          conversationId,
+          lastOpenedAt: new Date(0).toISOString(),
+        });
+      }
+    }
+
+    const evicted = normalizedIndex.slice(MAX_CACHED_CONVERSATIONS);
+    await Promise.all(
+      evicted.map((entry) =>
         AsyncStorage.removeItem(messageKey(userId, entry.conversationId))
       )
     );
     await writeIndex(
       userId,
-      index.filter((entry) => allowed.has(entry.conversationId))
+      normalizedIndex.slice(0, MAX_CACHED_CONVERSATIONS)
     );
   });
 }

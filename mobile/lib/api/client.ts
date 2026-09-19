@@ -75,7 +75,7 @@ async function refreshStoredTokens(): Promise<RefreshResponse | null> {
   });
   if (!response.ok) return null;
   const refreshed = (await response.json()) as RefreshResponse;
-  await saveTokens(refreshed);
+  await saveTokens(refreshed, refreshed.user.id);
   return refreshed;
 }
 export async function apiRequest<T>(

@@ -199,13 +199,36 @@ async function main(): Promise<void> {
       "Concurrent duplicate requests produced duplicate broadcasts.",
     );
 
+    const otherSenderAcknowledgement = await sendMessage(
+      recipientSocket,
+      conversation.id,
+      "Same client ID from a different sender",
+      firstClientId,
+    );
+    assert(
+      otherSenderAcknowledgement.ok,
+      "A different sender could not reuse the same client message ID.",
+    );
+    assert(
+      otherSenderAcknowledgement.message.id !== firstAcknowledgement.message.id,
+      "Different senders incorrectly reconciled to the same message.",
+    );
+
     const storedMessages = await prisma.message.findMany({
       where: { clientMessageId: { in: [firstClientId, racingClientId] } },
-      select: { id: true, clientMessageId: true },
+      select: { id: true, clientMessageId: true, senderId: true },
     });
     assert(
-      storedMessages.length === 2,
-      "Expected exactly two durable messages.",
+      storedMessages.length === 3,
+      "Expected three durable messages across the two senders.",
+    );
+    assert(
+      new Set(
+        storedMessages
+          .filter((message) => message.clientMessageId === firstClientId)
+          .map((message) => message.senderId),
+      ).size === 2,
+      "The client message ID was not scoped independently per sender.",
     );
 
     const invalidAcknowledgement = await sendMessage(
@@ -220,7 +243,7 @@ async function main(): Promise<void> {
     );
 
     console.log(
-      "Verified clientMessageId acknowledgement, sequential idempotency, concurrent unique-race recovery, no retry rebroadcast, and length validation.",
+      "Verified clientMessageId acknowledgement, per-sender uniqueness, sequential idempotency, concurrent unique-race recovery, no retry rebroadcast, and length validation.",
     );
   } finally {
     for (const socket of sockets) socket.disconnect();

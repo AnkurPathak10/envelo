@@ -26,12 +26,17 @@ To make retries safe (see the complexity note above), `Message`
 needs one new nullable field:
 
 ```prisma
-clientMessageId String? @unique
+clientMessageId String?
+
+@@unique([senderId, clientMessageId])
 ```
 
 The mobile app generates this ID locally (e.g. a UUID) before
-sending. The server uses it to detect "this exact message was
-already persisted" on a retry, rather than creating a duplicate.
+sending. The server uses it together with the sender ID to detect
+"this exact message was already persisted" on a retry, rather than
+creating a duplicate. Scoping uniqueness to the sender matches the
+idempotency lookup and prevents one account's client-generated ID
+from blocking another account that happens to generate the same ID.
 It is `null` for any message that predates this feature (existing
 historical messages) — the column is additive and optional, so no
 backfill is needed.
@@ -189,11 +194,11 @@ opens a conversation with pending messages, they appear immediately
 
 Update Feature 13's rendering logic:
 
-| Local status | Icon |
-| --- | --- |
-| `'PENDING'` (this feature, local-only) | clock |
+| Local status                             | Icon        |
+| ---------------------------------------- | ----------- |
+| `'PENDING'` (this feature, local-only)   | clock       |
 | `SENT` or `DELIVERED` (server-confirmed) | single tick |
-| `READ` | double tick |
+| `READ`                                   | double tick |
 
 This is the change that makes the clock icon meaningful again — it
 now only ever appears for a message that has not yet reached the
