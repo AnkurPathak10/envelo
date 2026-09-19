@@ -89,6 +89,8 @@ interface SocketContextValue {
 const SocketContext = createContext<SocketContextValue | undefined>(undefined);
 const SEND_TIMEOUT_MS = 10_000;
 const DELIVERY_BATCH_DELAY_MS = 300;
+const DELIVERY_RETRY_BASE_DELAY_MS = 500;
+const MAX_DELIVERY_RETRIES = 3;
 const MAX_DELIVERY_BATCH_SIZE = 100;
 
 export function SocketProvider({ children }: PropsWithChildren) {
@@ -97,6 +99,7 @@ export function SocketProvider({ children }: PropsWithChildren) {
   const messageListenersRef = useRef(new Set<NewMessageListener>());
   const messageStatusListenersRef = useRef(new Set<MessageStatusListener>());
   const pendingDeliveredIdsRef = useRef(new Set<string>());
+  const deliveryRetryCountRef = useRef(0);
   const deliveryFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null
   );
@@ -105,19 +108,22 @@ export function SocketProvider({ children }: PropsWithChildren) {
     useState<SocketConnectionState>('signed-out');
   const [connectionEpoch, setConnectionEpoch] = useState(0);
 
-  const scheduleDeliveryFlush = useCallback((): void => {
-    if (
-      deliveryFlushTimerRef.current ||
-      pendingDeliveredIdsRef.current.size === 0
-    ) {
-      return;
-    }
+  const scheduleDeliveryFlush = useCallback(
+    (delayMs = DELIVERY_BATCH_DELAY_MS): void => {
+      if (
+        deliveryFlushTimerRef.current ||
+        pendingDeliveredIdsRef.current.size === 0
+      ) {
+        return;
+      }
 
-    deliveryFlushTimerRef.current = setTimeout(() => {
-      deliveryFlushTimerRef.current = null;
-      deliveryFlushRef.current();
-    }, DELIVERY_BATCH_DELAY_MS);
-  }, []);
+      deliveryFlushTimerRef.current = setTimeout(() => {
+        deliveryFlushTimerRef.current = null;
+        deliveryFlushRef.current();
+      }, delayMs);
+    },
+    []
+  );
 
   const flushDeliveredMessages = useCallback((): void => {
     const socket = socketRef.current;
@@ -138,9 +144,17 @@ export function SocketProvider({ children }: PropsWithChildren) {
         for (const messageId of messageIds) {
           pendingDeliveredIdsRef.current.add(messageId);
         }
+
+        if (deliveryRetryCountRef.current < MAX_DELIVERY_RETRIES) {
+          const retryDelay =
+            DELIVERY_RETRY_BASE_DELAY_MS * 2 ** deliveryRetryCountRef.current;
+          deliveryRetryCountRef.current += 1;
+          scheduleDeliveryFlush(retryDelay);
+        }
         return;
       }
 
+      deliveryRetryCountRef.current = 0;
       scheduleDeliveryFlush();
     });
   }, [scheduleDeliveryFlush]);
@@ -155,6 +169,9 @@ export function SocketProvider({ children }: PropsWithChildren) {
           pendingDeliveredIdsRef.current.add(message.id);
         }
       }
+      if (deliveryRetryCountRef.current >= MAX_DELIVERY_RETRIES) {
+        deliveryRetryCountRef.current = 0;
+      }
       scheduleDeliveryFlush();
     },
     [scheduleDeliveryFlush, user?.id]
@@ -166,6 +183,7 @@ export function SocketProvider({ children }: PropsWithChildren) {
         clearTimeout(deliveryFlushTimerRef.current);
         deliveryFlushTimerRef.current = null;
       }
+      deliveryRetryCountRef.current = 0;
       pendingDeliveredIdsRef.current.clear();
     },
     [user?.id]
@@ -202,6 +220,7 @@ export function SocketProvider({ children }: PropsWithChildren) {
       console.log(`Socket connected: ${socket.id}`);
       setConnectionState('connected');
       setConnectionEpoch((epoch) => epoch + 1);
+      deliveryRetryCountRef.current = 0;
       scheduleDeliveryFlush();
     };
     const handleDisconnect = (reason: string): void => {
@@ -351,6 +370,7 @@ export function SocketProvider({ children }: PropsWithChildren) {
 
         // Preserve delivery-before-read ordering for messages received in the
         // current batch. Socket.IO sends both events in emission order.
+        deliveryRetryCountRef.current = 0;
         flushDeliveredMessages();
 
         const cleanup = (): void => {
