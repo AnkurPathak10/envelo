@@ -24,6 +24,10 @@ export class ApiError extends Error {
   }
 }
 
+export function isConnectivityError(error: unknown): error is ApiError {
+  return error instanceof ApiError && error.status === 0;
+}
+
 const apiUrl = process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, '');
 if (!apiUrl) throw new Error('EXPO_PUBLIC_API_URL must be set in mobile/.env');
 let onSessionExpired: (() => void) | undefined;

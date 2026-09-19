@@ -19,12 +19,18 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { MessageBubble } from '@/components/chat/message-bubble';
 import { MessageComposer } from '@/components/chat/message-composer';
 import { colors, radius } from '@/constants/theme';
-import { ApiError } from '@/lib/api/client';
+import { ApiError, isConnectivityError } from '@/lib/api/client';
 import { getMessageHistory, type TextMessage } from '@/lib/api/conversations';
 import { useAuth } from '@/lib/auth/AuthContext';
 import {
+  cacheMessageHistoryPage,
+  getCachedMessageHistory,
+  removeCachedMessageHistory,
+} from '@/lib/cache/messageCache';
+import {
   mergeTextMessages,
   type RenderableTextMessage,
+  toPendingTextMessage,
   updateMessageStatus,
 } from '@/lib/chat/messages';
 import { useSocket, type SocketTextMessage } from '@/lib/socket/SocketContext';
@@ -69,8 +75,9 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
     connectionState,
     connectionEpoch,
     markConversationRead,
+    pendingMessages,
+    queueMessage,
     retryConnection,
-    sendMessage,
     subscribeToNewMessages,
     subscribeToMessageStatuses,
   } = useSocket();
@@ -78,6 +85,7 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
   const [initialState, setInitialState] =
     useState<InitialHistoryState>('loading');
   const [initialError, setInitialError] = useState<string | null>(null);
+  const [isOffline, setIsOffline] = useState(false);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [isLoadingEarlier, setIsLoadingEarlier] = useState(false);
   const [earlierError, setEarlierError] = useState<string | null>(null);
@@ -92,6 +100,8 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
   const pendingScroll = useRef<{ animated: boolean } | null>(null);
   const observedConnectionEpoch = useRef(connectionEpoch);
   const loadedConversationId = useRef<string | null>(null);
+  const pendingMessagesRef = useRef(pendingMessages);
+  pendingMessagesRef.current = pendingMessages;
   const scheme = useColorScheme() ?? 'light';
   const c = colors[scheme];
   const styles = createStyles(c);
@@ -139,32 +149,105 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
     if (isInitialLoad) {
       setInitialState('loading');
       setInitialError(null);
+      setIsOffline(false);
+      setNextCursor(null);
+      setMessages((current) =>
+        current.filter((message) => message.conversationId === conversationId)
+      );
     }
 
-    void getMessageHistory(conversationId)
-      .then((page) => {
-        if (!isActive) return;
-        acknowledgeDeliveredMessages(page.messages);
-        setMessages((current) => mergeTextMessages(current, page.messages));
-        setNextCursor(page.nextCursor);
+    const loadHistory = async (): Promise<void> => {
+      const cachedPromise =
+        isInitialLoad && user?.id
+          ? getCachedMessageHistory(user.id, conversationId).catch(() => null)
+          : Promise.resolve(null);
+      const livePromise = getMessageHistory(conversationId).then(
+        (page) => ({ ok: true as const, page }),
+        (error: unknown) => ({ ok: false as const, error })
+      );
+      const cached = await cachedPromise;
+
+      if (isActive && cached) {
+        setMessages((current) =>
+          mergeTextMessages(
+            current.filter(
+              (message) => message.conversationId === conversationId
+            ),
+            cached.messages
+          )
+        );
+        setNextCursor(cached.nextCursor);
         loadedConversationId.current = conversationId;
         setInitialState('loaded');
         requestScrollToEnd(false);
-      })
-      .catch((error: unknown) => {
+      }
+
+      try {
+        const liveResult = await livePromise;
+        if (!liveResult.ok) throw liveResult.error;
+        const { page } = liveResult;
+        if (user?.id) {
+          void cacheMessageHistoryPage(user.id, conversationId, page).catch(
+            () => undefined
+          );
+        }
         if (!isActive) return;
-        if (
-          isInitialLoad &&
-          error instanceof ApiError &&
-          error.status === 404
-        ) {
+        acknowledgeDeliveredMessages(page.messages);
+        setMessages((current) =>
+          mergeTextMessages(
+            current.filter(
+              (message) => message.conversationId === conversationId
+            ),
+            page.messages
+          )
+        );
+        setNextCursor(
+          page.nextCursor === null
+            ? null
+            : cached
+              ? cached.nextCursor
+              : page.nextCursor
+        );
+        loadedConversationId.current = conversationId;
+        setInitialError(null);
+        setIsOffline(false);
+        setInitialState('loaded');
+        requestScrollToEnd(false);
+      } catch (error: unknown) {
+        if (!isActive) return;
+        if (error instanceof ApiError && error.status === 404) {
+          if (user?.id) {
+            void removeCachedMessageHistory(user.id, conversationId).catch(
+              () => undefined
+            );
+          }
+          loadedConversationId.current = null;
+          setIsOffline(false);
           setInitialState('not-found');
           return;
         }
-        if (!isInitialLoad) return;
+
+        const hasPendingMessages = pendingMessagesRef.current.some(
+          (message) => message.conversationId === conversationId
+        );
+        if (isConnectivityError(error)) {
+          setIsOffline(true);
+          if (cached || hasPendingMessages || !isInitialLoad) {
+            loadedConversationId.current = conversationId;
+            setInitialState('loaded');
+            return;
+          }
+        } else if (!isInitialLoad) {
+          return;
+        }
+
+        loadedConversationId.current = null;
         setInitialError(historyErrorMessage(error));
         setInitialState('error');
-      });
+      }
+    };
+
+    void loadHistory();
 
     return () => {
       isActive = false;
@@ -174,6 +257,7 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
     conversationId,
     reloadVersion,
     requestScrollToEnd,
+    user?.id,
   ]);
 
   useEffect(() => {
@@ -194,6 +278,20 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
       }),
     [conversationId, requestScrollToEnd, subscribeToNewMessages, user?.id]
   );
+
+  useEffect(() => {
+    const conversationPendingMessages = pendingMessages
+      .filter((message) => message.conversationId === conversationId)
+      .map(toPendingTextMessage);
+    if (conversationPendingMessages.length === 0) return;
+
+    setMessages((current) =>
+      mergeTextMessages(current, conversationPendingMessages)
+    );
+    setInitialState((current) =>
+      current === 'loading' || current === 'error' ? 'loaded' : current
+    );
+  }, [conversationId, pendingMessages]);
 
   useEffect(
     () =>
@@ -248,8 +346,22 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
       acknowledgeDeliveredMessages(page.messages);
       setMessages((current) => mergeTextMessages(current, page.messages));
       setNextCursor(page.nextCursor);
+      setIsOffline(false);
+      if (user?.id) {
+        void cacheMessageHistoryPage(
+          user.id,
+          conversationId,
+          page,
+          nextCursor
+        ).catch(() => undefined);
+      }
     } catch (error: unknown) {
-      setEarlierError(historyErrorMessage(error));
+      if (isConnectivityError(error)) {
+        setIsOffline(true);
+        setEarlierError("Can't load earlier messages while offline.");
+      } else {
+        setEarlierError(historyErrorMessage(error));
+      }
     } finally {
       setIsLoadingEarlier(false);
     }
@@ -258,42 +370,32 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
     conversationId,
     isLoadingEarlier,
     nextCursor,
+    user?.id,
   ]);
 
   const sendDraft = useCallback(async () => {
     const content = draft.trim();
-    if (!content || isSending || connectionState !== 'connected') return;
+    if (!content || !user?.id || isSending) return;
 
     const draftAtSend = draft;
     setIsSending(true);
     setSendError(null);
 
     try {
-      const acknowledgement = await sendMessage({ conversationId, content });
-      if (!acknowledgement.ok) {
-        setSendError(acknowledgement.error);
-        return;
-      }
-
-      setMessages((current) =>
-        mergeTextMessages(current, [
-          withInitialStatus(acknowledgement.message, user?.id),
-        ])
-      );
-      setDraft((current) => (current === draftAtSend ? '' : current));
       requestScrollToEnd(true);
+      await queueMessage({ conversationId, content });
+      setDraft((current) => (current === draftAtSend ? '' : current));
     } catch {
-      setSendError('Unable to send message. Please try again.');
+      setSendError('Unable to save this message. Please try again.');
     } finally {
       setIsSending(false);
     }
   }, [
-    connectionState,
     conversationId,
     draft,
     isSending,
+    queueMessage,
     requestScrollToEnd,
-    sendMessage,
     user?.id,
   ]);
 
@@ -355,6 +457,13 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       style={styles.container}
     >
+      {isOffline ? (
+        <View style={styles.offlineNotice}>
+          <Text style={styles.offlineNoticeText}>
+            You&apos;re offline — showing saved messages
+          </Text>
+        </View>
+      ) : null}
       <FlatList
         contentContainerStyle={[
           styles.listContent,
@@ -466,6 +575,15 @@ const createStyles = (c: typeof colors.light) =>
     },
     list: { flex: 1 },
     listContent: { paddingHorizontal: 12, paddingVertical: 12 },
+    offlineNotice: {
+      alignItems: 'center',
+      backgroundColor: c.bgSurface,
+      borderBottomColor: c.border,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      paddingHorizontal: 16,
+      paddingVertical: 7,
+    },
+    offlineNoticeText: { color: c.textMuted, fontSize: 12 },
     primaryButton: {
       backgroundColor: c.accentPrimary,
       borderRadius: radius.sm,

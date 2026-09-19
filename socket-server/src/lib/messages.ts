@@ -5,6 +5,7 @@ import { z } from "zod";
 export const messageSendSchema = z.object({
   conversationId: z.string().trim().min(1),
   content: z.string().trim().min(1).max(2000),
+  clientMessageId: z.string().trim().min(1).max(100).optional(),
 });
 
 export interface TextMessagePayload {
@@ -13,6 +14,7 @@ export interface TextMessagePayload {
   senderId: string;
   content: string;
   createdAt: string;
+  clientMessageId: string | null;
 }
 
 export type MessageSendAcknowledgement =
@@ -72,6 +74,7 @@ export const textMessageSelect = {
   senderId: true,
   content: true,
   createdAt: true,
+  clientMessageId: true,
 } satisfies Prisma.MessageSelect;
 
 type SelectedTextMessage = Prisma.MessageGetPayload<{
@@ -91,5 +94,6 @@ export function toTextMessagePayload(
     senderId: message.senderId,
     content: message.content,
     createdAt: message.createdAt.toISOString(),
+    clientMessageId: message.clientMessageId,
   };
 }

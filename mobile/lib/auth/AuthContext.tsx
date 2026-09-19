@@ -18,7 +18,12 @@ import {
   type SignInInput,
   type SignUpInput,
 } from '@/lib/api/auth';
-import { clearTokens, saveTokens } from '@/lib/auth/storage';
+import { clearTokens, getTokens, saveTokens } from '@/lib/auth/storage';
+import {
+  clearCachedUser,
+  getCachedUser,
+  saveCachedUser,
+} from '@/lib/auth/userStorage';
 
 interface AuthContextValue {
   user: ApiUser | null;
@@ -52,7 +57,10 @@ export function AuthProvider({ children }: PropsWithChildren) {
     async (response: AuthResponse) => {
       const authenticationRevision = ++authRevision.current;
       await serializeAuthMutation(async () => {
-        await saveTokens(response);
+        await Promise.all([
+          saveTokens(response),
+          saveCachedUser(response.user),
+        ]);
         if (authenticationRevision !== authRevision.current) return;
         setAccessToken(response.accessToken);
         setUser(response.user);
@@ -76,9 +84,11 @@ export function AuthProvider({ children }: PropsWithChildren) {
       if (!session) {
         setAccessToken(null);
         setUser(null);
+        await clearCachedUser();
         return null;
       }
 
+      await saveCachedUser(session.user);
       setAccessToken(session.accessToken);
       setUser(session.user);
       return session.accessToken;
@@ -94,7 +104,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
       } catch {
         /* Local logout still succeeds if the server is unavailable. */
       } finally {
-        await clearTokens();
+        await Promise.all([clearTokens(), clearCachedUser()]);
       }
     });
   }, [serializeAuthMutation]);
@@ -103,13 +113,44 @@ export function AuthProvider({ children }: PropsWithChildren) {
       authRevision.current += 1;
       setAccessToken(null);
       setUser(null);
+      void clearCachedUser();
     });
     const initialRevision = authRevision.current;
     void serializeAuthMutation(async () => {
-      const session = await refreshSession();
+      const [tokens, cachedUser] = await Promise.all([
+        getTokens(),
+        getCachedUser(),
+      ]);
       if (initialRevision !== authRevision.current) return;
-      setAccessToken(session?.accessToken ?? null);
-      setUser(session?.user ?? null);
+
+      if (tokens && cachedUser) {
+        setAccessToken(tokens.accessToken);
+        setUser(cachedUser);
+        setIsLoading(false);
+      } else if (!tokens) {
+        await clearCachedUser();
+      }
+
+      try {
+        const session = await refreshSession();
+        if (initialRevision !== authRevision.current) return;
+        if (!session) {
+          await clearCachedUser();
+          setAccessToken(null);
+          setUser(null);
+          return;
+        }
+
+        await saveCachedUser(session.user);
+        setAccessToken(session.accessToken);
+        setUser(session.user);
+      } catch {
+        // Keep the locally restored session during a cold offline start.
+        if (!tokens || !cachedUser) {
+          setAccessToken(null);
+          setUser(null);
+        }
+      }
     }).finally(() => setIsLoading(false));
     return () => setSessionExpiredHandler(undefined);
   }, [serializeAuthMutation]);

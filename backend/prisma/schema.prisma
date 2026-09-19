@@ -62,6 +62,7 @@ model ConversationParticipant {
 
 model Message {
   id              String        @id @default(cuid())
+  clientMessageId String?       @unique
   conversationId  String
   conversation    Conversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   senderId        String

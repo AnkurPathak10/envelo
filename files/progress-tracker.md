@@ -4,11 +4,11 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
-- Features 03, 04, 06, 09, 11, and 13 implemented - pending remaining manual real-device verification; Features 05, 07, 08, 10, and 12 complete
+- Features 03, 04, 06, 09, 11, 13, 14, and 15 implemented - pending remaining manual real-device verification; Features 05, 07, 08, 10, and 12 complete
 
 ## Current Goal
 
-- Implement Feature 14's optimistic/offline sending, then Feature 15's live mobile inbox
+- Implement Feature 16's mobile live inbox, UX polish, and manual theme toggle
 
 ## Completed
 
@@ -207,6 +207,28 @@ Update this file after every meaningful implementation change.
   - Review follow-up: failed delivery acknowledgements now restore their message IDs and retry up to three times with 500 ms, 1 s, and 2 s exponential delays. The retry budget resets after success, a fresh socket connection, or a later explicit delivery/read opportunity, so transient server failures recover without creating an unbounded retry loop.
   - Reviewed the Expo SDK 54 reference before implementation. Final `npx prettier --write .`, `npx tsc --noEmit`, `npm run lint`, and repository `git diff --check` pass. No backend, socket-server, Prisma schema, migration, dependency, auth/token, or offline-queue changes were made.
 
+- Feature 14: Optimistic Sending & Offline Queue implemented:
+  - Added nullable unique `Message.clientMessageId` through migration `20260919195658_add_client_message_id`; no backfill or unrelated model change was needed. The migration was deployed to Neon and `prisma migrate status` confirms all three migrations are applied.
+  - Extended `message:send` with an optional trimmed 1–100 character client ID and includes its nullable value in acknowledgements and `message:new`. The socket server checks `(senderId, clientMessageId)` before creation and returns an existing message without rebroadcasting on retry.
+  - Preserved the existing authorized message/status/conversation transaction for first-time sends while storing the client ID. Concurrent duplicate requests recover from Prisma `P2002` by re-fetching the winning row, preventing duplicate durable messages and recipient broadcasts.
+  - Added the Expo SDK 54-compatible AsyncStorage dependency and a serialized, versioned, single-array queue store. Each entry records `clientMessageId`, conversation, sender, content, and local timestamp; reads are user-scoped so one account never renders or flushes another account's pending content.
+  - Sending now creates a locally ordered optimistic message immediately, persists it before network transmission, clears the draft after durable storage succeeds, and remains enabled while disconnected. `PENDING` renders the restored clock icon; server-confirmed `SENT`/`DELIVERED` remain a single check and `READ` remains a double check.
+  - SocketProvider loads the durable queue on authentication and flushes on initial connection, reconnection, queue load, or a new online enqueue. Messages send sequentially within each conversation, while conversation groups flush independently in parallel; a failure stops only that conversation until a later flush opportunity.
+  - Successful broadcasts or acknowledgements remove the durable entry and reconcile the optimistic row to the authoritative server ID/timestamp using `clientMessageId`. Live broadcasts plus ack-driven reconciliation cover both normal sends and the lost-ack/idempotent-retry path without duplicate UI rows.
+  - Added a cached non-secret authenticated-user profile alongside existing secure native tokens so a cold offline native restart can enter the authenticated UI and display its durable queue. Network recovery now refreshes the session before reconnecting, allowing an expired cached access token to recover and flush automatically.
+  - Pending messages can render while REST history is unavailable, retain deterministic local order with monotonic timestamps, survive explicit sign-out without leaking into another account, and resume when their owning account signs in again. No REST endpoint or REST response contract changed.
+  - Added `verify:offline-queue`, which passed live against Socket.IO and Neon for client-ID echoing, ordinary retry idempotency, concurrent unique-race recovery, no duplicate recipient rebroadcast, and maximum-length validation. Its isolated users, conversation, messages, and statuses were cascade-cleaned after the run.
+  - Reviewed the Expo SDK 54 and AsyncStorage references. Mobile Prettier, `npx tsc --noEmit`, and Expo lint pass; socket-server Prettier, generation/build, strict harness type-check, and live verification pass; backend production build passes; repository `git diff --check` passes.
+
+- Feature 15: Offline Viewing — Conversation List & History Caching implemented:
+  - Added a versioned AsyncStorage conversation-list cache and per-conversation history entries using the same durable storage dependency as Feature 14. Every key is scoped by authenticated user ID, and malformed or cross-user payloads are rejected instead of rendered.
+  - Added a serialized history-cache index with least-recently-used eviction. It retains at most 20 conversation histories and the newest 100 durable text messages per conversation, while preserving a valid oldest-message cursor when earlier uncached history remains available.
+  - Conversation-list focus now starts cache and live loading together, renders a saved list immediately when available, refreshes it from `GET /api/conversations`, and writes every successful response back to storage. A successful authoritative list also removes cached histories for conversations the user can no longer access.
+  - Chat history now follows the same cache-first pattern, merges cached and fresh pages through the existing durable-ID/client-ID de-duplication and monotonic-status helper, updates the cache after initial and earlier-page fetches, and retains pending Feature 14 messages during offline starts.
+  - Exported explicit connectivity-error classification from the shared API client (`ApiError.status === 0`). Only those failures use cached content with understated offline notices; 401/404/500-class responses retain the existing blocking error/retry behavior, and a 404 removes that conversation's cached history.
+  - Previously opened chats remain freely navigable offline, including after a cold app restart through Feature 14's cached authenticated-user lifecycle. An uncached conversation still shows the expected connection error, and offline attempts to fetch uncached earlier history show a scoped non-blocking explanation.
+  - Reviewed the Expo SDK 54 reference before implementation. The existing installed Prettier formatted the mobile changes, and mobile `npx tsc --noEmit` plus `npm run lint` pass. No backend, socket-server, Prisma schema, migration, API contract, or dependency change was made for Feature 15.
+
 ## In Progress
 
 - Feature 03 manual real-device verification (signup, persistent session refresh, logout, and backend error states).
@@ -216,11 +238,12 @@ Update this file after every meaningful implementation change.
 - Feature 09 review follow-up: removed the web `localStorage` token fallback after security review. Android/iOS continue using Expo SecureStore; web tokens now exist only in module memory for the active page lifecycle and are cleared on reload. Persistent web login remains intentionally deferred until the backend owns an HttpOnly refresh-cookie flow. Feature 11 now supplies the bounded Socket.IO reconnection policy; offline message queueing remains intentionally deferred.
 - Feature 11 manual two-device verification: re-run Test 5 by exhausting all ten retries in airplane mode and then restoring connectivity while the app stays foregrounded; confirm both automatic NetInfo recovery and the manual disconnected-state retry. The other pending scenarios cover foreground recovery, expired-token refresh, missed-message history re-sync, and sign-out during reconnecting.
 - Feature 13 manual two-device verification: re-validate `SENT`/`DELIVERED` as a legible single tick, focused-chat `READ` as a double tick, inbox delivery, background/reconnect catch-up, absence of ticks on incoming bubbles, and light/dark contrast. Confirm native background state and hidden browser tabs defer read acknowledgement until visibility returns. The implementation and static checks are complete; this follow-up real-device/browser verification remains pending.
+- Feature 14 manual two-device verification: validate instant online clock-to-tick reconciliation, airplane-mode queueing, force-close/cold-start persistence, automatic recovery, strict same-conversation ordering, independent multi-conversation flushing, and light/dark clock presentation. Server idempotency is live-verified; the physical-device queue and restart scenarios remain pending.
+- Feature 15 manual two-device verification: validate cached chat and inbox rendering in airplane mode (including force-close/reopen), switching among multiple previously opened chats, the expected error for a never-opened chat, reconnect merge/de-duplication, genuine HTTP-error handling, and light/dark offline-notice presentation. The implementation and static checks are complete; these physical-device/browser scenarios remain pending.
 
 ## Next Up
 
-- Feature 14: Optimistic Sending & Offline Queue.
-- Feature 15: Mobile Live Inbox and UX polish (live row movement, preview/timestamp, unread badge, and improved New conversation/header controls).
+- Feature 16: Mobile Live Inbox, UX polish, and theme toggle (live row movement, preview/timestamp, unread badge, improved New conversation/header controls, and a manual light/dark switch).
 
 ## Open Questions
 
@@ -228,11 +251,11 @@ Update this file after every meaningful implementation change.
   confirmed~~ — Resolved: plain `StyleSheet` with design tokens
   from `ui-context.md`, `@expo/vector-icons` for icons
 - ~~Exact Socket.IO reconnection behavior~~ — Resolved in Feature 11 with
-  bounded retry backoff, foreground recovery, and history re-sync; offline
-  message queueing remains deferred
+  bounded retry backoff, foreground recovery, and history re-sync; Feature 14
+  now provides durable offline queueing and ordered reconnect flushing
 - Conversation-list UX review: the current text-only New conversation action
   looks visually distorted/unfinished and must become a polished icon/button
-  during Feature 15's mobile inbox work.
+  during Feature 16's mobile inbox work.
 - Docker: Ankur wants to containerize `backend/` and
   `socket-server/` for local dev and deployment — timing TBD,
   planned for once `socket-server/` has real code to containerize

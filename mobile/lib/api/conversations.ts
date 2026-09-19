@@ -30,6 +30,7 @@ export interface TextMessage {
   content: string | null;
   createdAt: string;
   status: MessageStatus | null;
+  clientMessageId?: string | null;
 }
 
 export interface MessageHistoryPage {

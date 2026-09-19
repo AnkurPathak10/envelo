@@ -24,10 +24,13 @@ function getConnectionNotice(
   connectionState: SocketConnectionState
 ): string | null {
   if (connectionState === 'connected') return null;
-  if (connectionState === 'connecting') return 'Connecting to messaging…';
-  if (connectionState === 'reconnecting') return 'Reconnecting…';
-  if (connectionState === 'disconnected') return 'Disconnected. Tap to retry.';
-  return 'Messaging is disconnected. Send is unavailable.';
+  if (connectionState === 'connecting')
+    return 'Connecting… Messages will be queued.';
+  if (connectionState === 'reconnecting')
+    return 'Reconnecting… Messages will be queued.';
+  if (connectionState === 'disconnected')
+    return 'Disconnected. Messages will be queued. Tap to retry.';
+  return 'Messaging is offline. Messages will be queued.';
 }
 
 export function MessageComposer({
@@ -42,8 +45,7 @@ export function MessageComposer({
   const scheme = useColorScheme() ?? 'light';
   const c = colors[scheme];
   const styles = createStyles(c);
-  const isSendDisabled =
-    connectionState !== 'connected' || isSending || !value.trim();
+  const isSendDisabled = isSending || !value.trim();
   const connectionNotice = getConnectionNotice(connectionState);
 
   return (

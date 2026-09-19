@@ -9,6 +9,7 @@
     "build": "npm run generate && tsc && node scripts/copy-generated-client.cjs",
     "start": "node dist/index.js",
     "verify:message-flow": "ts-node-dev --transpile-only scripts/verify-message-flow.ts",
+    "verify:offline-queue": "ts-node-dev --transpile-only scripts/verify-offline-queue-flow.ts",
     "verify:message-status": "ts-node-dev --transpile-only scripts/verify-message-status-flow.ts"
   },
   "dependencies": {

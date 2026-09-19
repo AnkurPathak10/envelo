@@ -15,12 +15,17 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { ConversationRow } from '@/components/conversations/conversation-row';
 import { EmptyConversationList } from '@/components/conversations/empty-conversation-list';
 import { colors, radius } from '@/constants/theme';
-import { ApiError } from '@/lib/api/client';
+import { ApiError, isConnectivityError } from '@/lib/api/client';
 import {
   getConversations,
   type ConversationListItem,
 } from '@/lib/api/conversations';
 import { useAuth } from '@/lib/auth/AuthContext';
+import {
+  getCachedConversations,
+  saveCachedConversations,
+} from '@/lib/cache/conversationCache';
+import { retainCachedMessageHistories } from '@/lib/cache/messageCache';
 import { useSocket } from '@/lib/socket/SocketContext';
 
 function getErrorMessage(error: unknown): string {
@@ -30,15 +35,17 @@ function getErrorMessage(error: unknown): string {
 }
 
 export default function HomeScreen() {
-  const { signOut } = useAuth();
+  const { signOut, user } = useAuth();
   const { acknowledgeDeliveredMessages } = useSocket();
   const [conversations, setConversations] = useState<ConversationListItem[]>(
     []
   );
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isOffline, setIsOffline] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [reloadVersion, setReloadVersion] = useState(0);
   const hasLoaded = useRef(false);
+  const retryRequested = useRef(false);
   const scheme = useColorScheme() ?? 'light';
   const c = colors[scheme];
   const styles = createStyles(c);
@@ -59,12 +66,41 @@ export default function HomeScreen() {
 
   useFocusEffect(
     useCallback(() => {
+      // The counter intentionally retriggers this focused-screen refresh.
+      void reloadVersion;
       let isActive = true;
-      if (reloadVersion > 0 || !hasLoaded.current) setIsLoading(true);
+      if (retryRequested.current || !hasLoaded.current) setIsLoading(true);
+      retryRequested.current = false;
       setErrorMessage(null);
+      setIsOffline(false);
 
-      void getConversations()
-        .then((items) => {
+      const loadConversations = async (): Promise<void> => {
+        if (!user?.id) return;
+        const hadInMemoryData = hasLoaded.current;
+        const cachedPromise = getCachedConversations(user.id).catch(() => null);
+        const livePromise = getConversations().then(
+          (items) => ({ ok: true as const, items }),
+          (error: unknown) => ({ ok: false as const, error })
+        );
+        const cached = await cachedPromise;
+
+        if (isActive && cached) {
+          setConversations(cached);
+          hasLoaded.current = true;
+          setIsLoading(false);
+        }
+
+        try {
+          const liveResult = await livePromise;
+          if (!liveResult.ok) throw liveResult.error;
+          const { items } = liveResult;
+          void Promise.all([
+            saveCachedConversations(user.id, items),
+            retainCachedMessageHistories(
+              user.id,
+              items.map((item) => item.id)
+            ),
+          ]).catch(() => undefined);
           if (!isActive) return;
           acknowledgeDeliveredMessages(
             items.flatMap((item) =>
@@ -72,23 +108,32 @@ export default function HomeScreen() {
             )
           );
           setConversations(items);
+          setErrorMessage(null);
+          setIsOffline(false);
           hasLoaded.current = true;
-        })
-        .catch((error: unknown) => {
+        } catch (error: unknown) {
           if (!isActive) return;
-          setErrorMessage(getErrorMessage(error));
-        })
-        .finally(() => {
+          if (isConnectivityError(error) && (cached || hadInMemoryData)) {
+            setIsOffline(true);
+            setErrorMessage(null);
+          } else {
+            setErrorMessage(getErrorMessage(error));
+          }
+        } finally {
           if (isActive) setIsLoading(false);
-        });
+        }
+      };
+
+      void loadConversations();
 
       return () => {
         isActive = false;
       };
-    }, [acknowledgeDeliveredMessages, reloadVersion])
+    }, [acknowledgeDeliveredMessages, reloadVersion, user?.id])
   );
 
   const retry = useCallback(() => {
+    retryRequested.current = true;
     setIsLoading(true);
     setReloadVersion((version) => version + 1);
   }, []);
@@ -114,6 +159,14 @@ export default function HomeScreen() {
           </Pressable>
         </View>
       </View>
+
+      {isOffline && !errorMessage ? (
+        <View style={styles.offlineNotice}>
+          <Text style={styles.offlineNoticeText}>
+            You&apos;re offline — showing saved conversations
+          </Text>
+        </View>
+      ) : null}
 
       {isLoading ? (
         <View style={styles.centeredState}>
@@ -187,6 +240,15 @@ const createStyles = (c: typeof colors.light) =>
       fontSize: 14,
       fontWeight: '600',
     },
+    offlineNotice: {
+      alignItems: 'center',
+      backgroundColor: c.bgSurface,
+      borderBottomColor: c.border,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      paddingHorizontal: 16,
+      paddingVertical: 7,
+    },
+    offlineNoticeText: { color: c.textMuted, fontSize: 12 },
     retryButton: {
       backgroundColor: c.accentPrimary,
       borderRadius: radius.sm,

@@ -1,11 +1,15 @@
 import type { MessageStatus, TextMessage } from '@/lib/api/conversations';
+import type { PendingMessage } from '@/lib/offline/pendingMessagesStore';
 
-export interface RenderableTextMessage extends TextMessage {
+export type LocalMessageStatus = MessageStatus | 'PENDING';
+
+export interface RenderableTextMessage extends Omit<TextMessage, 'status'> {
   content: string;
+  status: LocalMessageStatus | null;
 }
 
 function isRenderableTextMessage(
-  message: TextMessage
+  message: TextMessage | RenderableTextMessage
 ): message is RenderableTextMessage {
   return message.content !== null;
 }
@@ -26,23 +30,45 @@ const statusRank: Record<MessageStatus, number> = {
 };
 
 function newestStatus(
-  current: MessageStatus | null,
-  incoming: MessageStatus | null
-): MessageStatus | null {
+  current: LocalMessageStatus | null,
+  incoming: LocalMessageStatus | null
+): LocalMessageStatus | null {
   if (!current) return incoming;
   if (!incoming) return current;
+  if (current === 'PENDING') return incoming;
+  if (incoming === 'PENDING') return current;
   return statusRank[incoming] > statusRank[current] ? incoming : current;
 }
 
 export function mergeTextMessages(
   current: RenderableTextMessage[],
-  incoming: TextMessage[]
+  incoming: Array<TextMessage | RenderableTextMessage>
 ): RenderableTextMessage[] {
   const byId = new Map<string, RenderableTextMessage>();
+  const idByClientMessageId = new Map<string, string>();
 
-  for (const message of current) byId.set(message.id, message);
+  for (const message of current) {
+    byId.set(message.id, message);
+    if (message.clientMessageId) {
+      idByClientMessageId.set(message.clientMessageId, message.id);
+    }
+  }
   for (const message of incoming) {
     if (!isRenderableTextMessage(message)) continue;
+
+    const matchingClientId = message.clientMessageId
+      ? idByClientMessageId.get(message.clientMessageId)
+      : undefined;
+    if (matchingClientId && matchingClientId !== message.id) {
+      const matchingMessage = byId.get(matchingClientId);
+      if (
+        message.status === 'PENDING' &&
+        matchingMessage?.status !== 'PENDING'
+      ) {
+        continue;
+      }
+      byId.delete(matchingClientId);
+    }
 
     const existing = byId.get(message.id);
     byId.set(
@@ -51,9 +77,26 @@ export function mergeTextMessages(
         ? { ...message, status: newestStatus(existing.status, message.status) }
         : message
     );
+    if (message.clientMessageId) {
+      idByClientMessageId.set(message.clientMessageId, message.id);
+    }
   }
 
   return [...byId.values()].sort(compareMessages);
+}
+
+export function toPendingTextMessage(
+  message: PendingMessage
+): RenderableTextMessage {
+  return {
+    id: message.clientMessageId,
+    clientMessageId: message.clientMessageId,
+    conversationId: message.conversationId,
+    senderId: message.senderId,
+    content: message.content,
+    createdAt: message.createdAt,
+    status: 'PENDING',
+  };
 }
 
 export function updateMessageStatus(

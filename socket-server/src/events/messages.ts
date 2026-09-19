@@ -1,4 +1,4 @@
-import { MessageStatusType } from "../generated/prisma";
+import { MessageStatusType, Prisma } from "../generated/prisma";
 
 import {
   messageSendSchema,
@@ -10,6 +10,16 @@ import {
 } from "../lib/messages";
 import { prisma } from "../lib/prisma";
 import { userRoom } from "../lib/rooms";
+
+async function findExistingClientMessage(
+  senderId: string,
+  clientMessageId: string,
+) {
+  return prisma.message.findFirst({
+    where: { senderId, clientMessageId },
+    select: textMessageSelect,
+  });
+}
 
 export function registerMessageHandlers(
   io: EnveloServer,
@@ -27,7 +37,22 @@ export function registerMessageHandlers(
       return;
     }
 
+    const { clientMessageId } = parsed.data;
     try {
+      if (clientMessageId) {
+        const existingMessage = await findExistingClientMessage(
+          senderId,
+          clientMessageId,
+        );
+        if (existingMessage) {
+          acknowledge?.({
+            ok: true,
+            message: toTextMessagePayload(existingMessage),
+          });
+          return;
+        }
+      }
+
       const transactionResult = await prisma.$transaction(async (tx) => {
         const senderParticipant = await tx.conversationParticipant.findUnique({
           where: {
@@ -56,6 +81,7 @@ export function registerMessageHandlers(
             conversationId: parsed.data.conversationId,
             senderId,
             content: parsed.data.content,
+            clientMessageId: clientMessageId ?? null,
             mediaUrl: null,
           },
           select: textMessageSelect,
@@ -97,6 +123,24 @@ export function registerMessageHandlers(
       io.to(rooms).emit("message:new", message);
       acknowledge?.({ ok: true, message });
     } catch (error: unknown) {
+      if (
+        clientMessageId &&
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === "P2002"
+      ) {
+        const existingMessage = await findExistingClientMessage(
+          senderId,
+          clientMessageId,
+        );
+        if (existingMessage) {
+          acknowledge?.({
+            ok: true,
+            message: toTextMessagePayload(existingMessage),
+          });
+          return;
+        }
+      }
+
       console.error(
         `message:send persistence failure, socket: ${socket.id}, user: ${senderId}`,
       );

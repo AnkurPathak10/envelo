@@ -17,8 +17,11 @@ function formatMessageTime(createdAt: string): string {
 
 function outgoingStatusPresentation(status: RenderableTextMessage['status']): {
   accessibilityLabel: string;
-  icon: 'check' | 'done-all';
+  icon: 'schedule' | 'check' | 'done-all';
 } {
+  if (status === 'PENDING') {
+    return { accessibilityLabel: 'Pending', icon: 'schedule' };
+  }
   if (status === 'READ') {
     return { accessibilityLabel: 'Read', icon: 'done-all' };
   }

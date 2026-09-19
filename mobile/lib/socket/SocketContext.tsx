@@ -14,10 +14,18 @@ import { io, type Socket } from 'socket.io-client';
 
 import type { MessageStatus, TextMessage } from '@/lib/api/conversations';
 import { useAuth } from '@/lib/auth/AuthContext';
+import {
+  addPendingMessage,
+  createClientMessageId,
+  getPendingMessages,
+  removePendingMessage,
+  type PendingMessage,
+} from '@/lib/offline/pendingMessagesStore';
 
 export interface MessageSendPayload {
   conversationId: string;
   content: string;
+  clientMessageId?: string;
 }
 
 export type SocketTextMessage = Omit<TextMessage, 'status'> & {
@@ -69,6 +77,11 @@ export type SocketConnectionState =
 interface SocketContextValue {
   connectionState: SocketConnectionState;
   connectionEpoch: number;
+  pendingMessages: PendingMessage[];
+  queueMessage: (payload: {
+    conversationId: string;
+    content: string;
+  }) => Promise<PendingMessage>;
   retryConnection: () => void;
   sendMessage: (
     payload: MessageSendPayload
@@ -95,6 +108,8 @@ const MAX_DELIVERY_BATCH_SIZE = 100;
 
 export function SocketProvider({ children }: PropsWithChildren) {
   const { accessToken, refreshAccessToken, user } = useAuth();
+  const currentUserIdRef = useRef(user?.id);
+  currentUserIdRef.current = user?.id;
   const socketRef = useRef<EnveloSocket | null>(null);
   const messageListenersRef = useRef(new Set<NewMessageListener>());
   const messageStatusListenersRef = useRef(new Set<MessageStatusListener>());
@@ -104,9 +119,18 @@ export function SocketProvider({ children }: PropsWithChildren) {
     null
   );
   const deliveryFlushRef = useRef<() => void>(() => undefined);
+  const pendingConfirmationRef = useRef<
+    (clientMessageId: string) => Promise<void>
+  >(async () => undefined);
+  const pendingQueueFlushRef = useRef<() => void>(() => undefined);
+  const isPendingQueueFlushRunningRef = useRef(false);
+  const pendingQueueFlushRequestedRef = useRef(false);
+  const pendingMutationRevisionRef = useRef(0);
+  const lastPendingTimestampRef = useRef(0);
   const [connectionState, setConnectionState] =
     useState<SocketConnectionState>('signed-out');
   const [connectionEpoch, setConnectionEpoch] = useState(0);
+  const [pendingMessages, setPendingMessages] = useState<PendingMessage[]>([]);
 
   const scheduleDeliveryFlush = useCallback(
     (delayMs = DELIVERY_BATCH_DELAY_MS): void => {
@@ -222,6 +246,7 @@ export function SocketProvider({ children }: PropsWithChildren) {
       setConnectionEpoch((epoch) => epoch + 1);
       deliveryRetryCountRef.current = 0;
       scheduleDeliveryFlush();
+      pendingQueueFlushRef.current();
     };
     const handleDisconnect = (reason: string): void => {
       console.log(`Socket disconnected: ${reason}`);
@@ -239,6 +264,11 @@ export function SocketProvider({ children }: PropsWithChildren) {
     };
     const handleNewMessage: NewMessageListener = (message) => {
       acknowledgeDeliveredMessages([message]);
+      if (message.senderId === user?.id && message.clientMessageId) {
+        void pendingConfirmationRef
+          .current(message.clientMessageId)
+          .catch(() => undefined);
+      }
       for (const listener of messageListenersRef.current) listener(message);
     };
     const handleMessageStatus: MessageStatusListener = (update) => {
@@ -266,7 +296,12 @@ export function SocketProvider({ children }: PropsWithChildren) {
       socket.disconnect();
       if (socketRef.current === socket) socketRef.current = null;
     };
-  }, [accessToken, acknowledgeDeliveredMessages, scheduleDeliveryFlush]);
+  }, [
+    accessToken,
+    acknowledgeDeliveredMessages,
+    scheduleDeliveryFlush,
+    user?.id,
+  ]);
 
   const retryConnection = useCallback((): void => {
     const socket = socketRef.current;
@@ -321,9 +356,9 @@ export function SocketProvider({ children }: PropsWithChildren) {
         networkState.isConnected === true && previousIsConnected !== true;
       previousIsConnected = networkState.isConnected;
 
-      if (regainedConnectivity) retryConnection();
+      if (regainedConnectivity) void reconnectWhenForegrounded();
     });
-  }, [retryConnection]);
+  }, [reconnectWhenForegrounded]);
 
   const sendMessage = useCallback(
     (payload: MessageSendPayload): Promise<MessageSendAcknowledgement> =>
@@ -355,6 +390,173 @@ export function SocketProvider({ children }: PropsWithChildren) {
       }),
     []
   );
+
+  const confirmPendingMessage = useCallback(
+    async (clientMessageId: string): Promise<void> => {
+      if (!user?.id) return;
+      const senderId = user.id;
+      pendingMutationRevisionRef.current += 1;
+      await removePendingMessage(senderId, clientMessageId);
+      if (currentUserIdRef.current !== senderId) return;
+      setPendingMessages((current) =>
+        current.filter((message) => message.clientMessageId !== clientMessageId)
+      );
+    },
+    [user?.id]
+  );
+  pendingConfirmationRef.current = confirmPendingMessage;
+
+  const flushPendingQueue = useCallback(async (): Promise<void> => {
+    if (isPendingQueueFlushRunningRef.current) {
+      pendingQueueFlushRequestedRef.current = true;
+      return;
+    }
+
+    const senderId = user?.id;
+    if (!senderId || !socketRef.current?.connected) return;
+
+    isPendingQueueFlushRunningRef.current = true;
+    pendingQueueFlushRequestedRef.current = false;
+    try {
+      const flushRevision = pendingMutationRevisionRef.current;
+      const queuedMessages = await getPendingMessages(senderId);
+      if (flushRevision === pendingMutationRevisionRef.current) {
+        if (currentUserIdRef.current === senderId) {
+          setPendingMessages(queuedMessages);
+        }
+      }
+
+      const byConversation = new Map<string, PendingMessage[]>();
+      for (const message of queuedMessages) {
+        const conversationMessages =
+          byConversation.get(message.conversationId) ?? [];
+        conversationMessages.push(message);
+        byConversation.set(message.conversationId, conversationMessages);
+      }
+
+      await Promise.all(
+        [...byConversation.values()].map(async (conversationMessages) => {
+          for (const pendingMessage of conversationMessages) {
+            if (!socketRef.current?.connected) break;
+
+            try {
+              const acknowledgement = await sendMessage({
+                conversationId: pendingMessage.conversationId,
+                content: pendingMessage.content,
+                clientMessageId: pendingMessage.clientMessageId,
+              });
+              if (!acknowledgement.ok) break;
+
+              await confirmPendingMessage(pendingMessage.clientMessageId);
+              if (currentUserIdRef.current !== senderId) break;
+              for (const listener of messageListenersRef.current) {
+                listener(acknowledgement.message);
+              }
+            } catch {
+              break;
+            }
+          }
+        })
+      );
+    } finally {
+      isPendingQueueFlushRunningRef.current = false;
+      if (pendingQueueFlushRequestedRef.current) {
+        pendingQueueFlushRequestedRef.current = false;
+        pendingQueueFlushRef.current();
+      }
+    }
+  }, [confirmPendingMessage, sendMessage, user?.id]);
+  pendingQueueFlushRef.current = () => {
+    void flushPendingQueue();
+  };
+
+  const queueMessage = useCallback(
+    async (payload: {
+      conversationId: string;
+      content: string;
+    }): Promise<PendingMessage> => {
+      if (!user?.id)
+        throw new Error('Cannot queue a message while signed out.');
+
+      const createdAtMilliseconds = Math.max(
+        Date.now(),
+        lastPendingTimestampRef.current + 1
+      );
+      lastPendingTimestampRef.current = createdAtMilliseconds;
+
+      const pendingMessage: PendingMessage = {
+        clientMessageId: createClientMessageId(),
+        conversationId: payload.conversationId,
+        senderId: user.id,
+        content: payload.content,
+        createdAt: new Date(createdAtMilliseconds).toISOString(),
+      };
+
+      pendingMutationRevisionRef.current += 1;
+      setPendingMessages((current) => [...current, pendingMessage]);
+      try {
+        await addPendingMessage(pendingMessage);
+      } catch (error: unknown) {
+        setPendingMessages((current) =>
+          current.filter(
+            (message) =>
+              message.clientMessageId !== pendingMessage.clientMessageId
+          )
+        );
+        throw error;
+      }
+
+      try {
+        const storedMessages = await getPendingMessages(user.id);
+        if (currentUserIdRef.current === user.id) {
+          setPendingMessages(storedMessages);
+        }
+      } catch {
+        // The optimistic state is already durable; a later load will reconcile.
+      }
+
+      if (currentUserIdRef.current === user.id) {
+        pendingQueueFlushRef.current();
+      }
+      return pendingMessage;
+    },
+    [user?.id]
+  );
+
+  useEffect(() => {
+    let isActive = true;
+    if (!user?.id) {
+      pendingMutationRevisionRef.current += 1;
+      setPendingMessages([]);
+      return;
+    }
+
+    const senderId = user.id;
+    const loadRevision = pendingMutationRevisionRef.current;
+    setPendingMessages((current) =>
+      current.filter((message) => message.senderId === senderId)
+    );
+    void getPendingMessages(senderId)
+      .then((messages) => {
+        if (!isActive || loadRevision !== pendingMutationRevisionRef.current) {
+          return;
+        }
+        lastPendingTimestampRef.current = Math.max(
+          lastPendingTimestampRef.current,
+          ...messages.map((message) => Date.parse(message.createdAt))
+        );
+        setPendingMessages(messages);
+        pendingQueueFlushRef.current();
+      })
+      .catch(() => {
+        if (isActive) setPendingMessages([]);
+      });
+
+    return () => {
+      isActive = false;
+      pendingMutationRevisionRef.current += 1;
+    };
+  }, [user?.id]);
 
   const markConversationRead = useCallback(
     (payload: {
@@ -419,6 +621,8 @@ export function SocketProvider({ children }: PropsWithChildren) {
     () => ({
       connectionState,
       connectionEpoch,
+      pendingMessages,
+      queueMessage,
       acknowledgeDeliveredMessages,
       markConversationRead,
       retryConnection,
@@ -429,6 +633,8 @@ export function SocketProvider({ children }: PropsWithChildren) {
     [
       connectionEpoch,
       connectionState,
+      pendingMessages,
+      queueMessage,
       acknowledgeDeliveredMessages,
       markConversationRead,
       retryConnection,
