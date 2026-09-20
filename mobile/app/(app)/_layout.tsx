@@ -1,10 +1,10 @@
 import { Stack } from 'expo-router';
-import { useColorScheme } from 'react-native';
 
 import { colors } from '@/constants/theme';
+import { useAppColorScheme } from '@/lib/theme/useAppColorScheme';
 
 export default function AppLayout() {
-  const scheme = useColorScheme() ?? 'light';
+  const scheme = useAppColorScheme();
   const c = colors[scheme];
 
   return (

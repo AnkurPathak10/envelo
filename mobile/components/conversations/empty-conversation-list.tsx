@@ -1,12 +1,7 @@
-import {
-  Pressable,
-  StyleSheet,
-  Text,
-  useColorScheme,
-  View,
-} from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { colors, radius } from '@/constants/theme';
+import { useAppColorScheme } from '@/lib/theme/useAppColorScheme';
 
 interface EmptyConversationListProps {
   onStartConversation: () => void;
@@ -15,7 +10,7 @@ interface EmptyConversationListProps {
 export function EmptyConversationList({
   onStartConversation,
 }: EmptyConversationListProps) {
-  const scheme = useColorScheme() ?? 'light';
+  const scheme = useAppColorScheme();
   const c = colors[scheme];
   const styles = createStyles(c);
 

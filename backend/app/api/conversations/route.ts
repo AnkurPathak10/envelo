@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import {
   conversationListSelect,
+  hasOtherParticipant,
   toConversationListItem,
 } from "@/lib/conversations";
 import { requireAuth } from "@/lib/auth/requireAuth";
@@ -22,8 +23,8 @@ export async function GET(request: NextRequest) {
   });
 
   return NextResponse.json({
-    conversations: conversations.map((conversation) =>
-      toConversationListItem(conversation, userId),
-    ),
+    conversations: conversations
+      .filter((conversation) => hasOtherParticipant(conversation, userId))
+      .map((conversation) => toConversationListItem(conversation, userId)),
   });
 }

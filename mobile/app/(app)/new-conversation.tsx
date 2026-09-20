@@ -7,7 +7,6 @@ import {
   StyleSheet,
   Text,
   TextInput,
-  useColorScheme,
   View,
 } from 'react-native';
 
@@ -19,6 +18,7 @@ import {
   searchUsers,
   type ConversationParticipant,
 } from '@/lib/api/conversations';
+import { useAppColorScheme } from '@/lib/theme/useAppColorScheme';
 
 function getErrorMessage(error: unknown): string {
   return error instanceof ApiError
@@ -41,7 +41,7 @@ export default function NewConversationScreen() {
   const requestSequence = useRef(0);
   const isMounted = useRef(true);
   const trimmedQuery = query.trim();
-  const scheme = useColorScheme() ?? 'light';
+  const scheme = useAppColorScheme();
   const c = colors[scheme];
   const styles = createStyles(c);
 

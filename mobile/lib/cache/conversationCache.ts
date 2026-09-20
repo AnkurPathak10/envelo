@@ -6,6 +6,7 @@ import type {
 } from '@/lib/api/conversations';
 
 const CONVERSATION_CACHE_PREFIX = 'envelo_conversation_list_v1:';
+let cacheMutation = Promise.resolve();
 
 interface ConversationListCacheEntry {
   userId: string;
@@ -98,5 +99,8 @@ export function saveCachedConversations(
     conversations,
     cachedAt: new Date().toISOString(),
   };
-  return AsyncStorage.setItem(cacheKey(userId), JSON.stringify(entry));
+  cacheMutation = cacheMutation
+    .catch(() => undefined)
+    .then(() => AsyncStorage.setItem(cacheKey(userId), JSON.stringify(entry)));
+  return cacheMutation;
 }

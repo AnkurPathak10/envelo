@@ -126,3 +126,12 @@ export function toConversationListItem(
     unreadCount: conversation._count.messages,
   };
 }
+
+export function hasOtherParticipant(
+  conversation: ConversationListConversation,
+  currentUserId: string,
+): boolean {
+  return conversation.participants.some(
+    ({ user }) => user.id !== currentUserId,
+  );
+}

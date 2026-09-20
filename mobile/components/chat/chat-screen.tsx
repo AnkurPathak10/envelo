@@ -11,7 +11,6 @@ import {
   Pressable,
   StyleSheet,
   Text,
-  useColorScheme,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -22,6 +21,7 @@ import { colors, radius } from '@/constants/theme';
 import { ApiError, isConnectivityError } from '@/lib/api/client';
 import { getMessageHistory, type TextMessage } from '@/lib/api/conversations';
 import { useAuth } from '@/lib/auth/AuthContext';
+import { useAppColorScheme } from '@/lib/theme/useAppColorScheme';
 import {
   cacheMessageHistoryPage,
   getCachedMessageHistory,
@@ -102,7 +102,7 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
   const loadedConversationId = useRef<string | null>(null);
   const pendingMessagesRef = useRef(pendingMessages);
   pendingMessagesRef.current = pendingMessages;
-  const scheme = useColorScheme() ?? 'light';
+  const scheme = useAppColorScheme();
   const c = colors[scheme];
   const styles = createStyles(c);
 

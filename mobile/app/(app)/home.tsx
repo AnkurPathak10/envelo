@@ -1,20 +1,23 @@
-import { useCallback, useRef, useState } from 'react';
-import { useFocusEffect } from '@react-navigation/native';
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useFocusEffect, useIsFocused } from '@react-navigation/native';
 import { router } from 'expo-router';
 import {
   ActivityIndicator,
+  AppState,
   FlatList,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
-  useColorScheme,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ConversationRow } from '@/components/conversations/conversation-row';
 import { EmptyConversationList } from '@/components/conversations/empty-conversation-list';
-import { colors, radius } from '@/constants/theme';
+import { ThemeToggle } from '@/components/theme/theme-toggle';
+import { colors, radius, spacing } from '@/constants/theme';
 import { ApiError, isConnectivityError } from '@/lib/api/client';
 import {
   getConversations,
@@ -26,7 +29,12 @@ import {
   saveCachedConversations,
 } from '@/lib/cache/conversationCache';
 import { retainCachedMessageHistories } from '@/lib/cache/messageCache';
-import { useSocket } from '@/lib/socket/SocketContext';
+import {
+  type MessageStatusUpdate,
+  type SocketTextMessage,
+  useSocket,
+} from '@/lib/socket/SocketContext';
+import { useAppColorScheme } from '@/lib/theme/useAppColorScheme';
 
 function getErrorMessage(error: unknown): string {
   return error instanceof ApiError
@@ -34,9 +42,75 @@ function getErrorMessage(error: unknown): string {
     : 'Unable to load conversations. Please try again.';
 }
 
+const statusRank = { SENT: 1, DELIVERED: 2, READ: 3 } as const;
+
+function isInboxActuallyVisible(isFocused: boolean): boolean {
+  if (!isFocused) return false;
+  if (Platform.OS === 'web') {
+    return (
+      typeof document === 'undefined' || document.visibilityState === 'visible'
+    );
+  }
+  return AppState.currentState === 'active';
+}
+
+function mergeRestWithLiveConversations(
+  restItems: ConversationListItem[],
+  currentItems: ConversationListItem[]
+): ConversationListItem[] {
+  const currentById = new Map(currentItems.map((item) => [item.id, item]));
+  const promotedIds = new Set<string>();
+  const merged = restItems.map((restItem) => {
+    const currentItem = currentById.get(restItem.id);
+    if (!currentItem?.lastMessage) return restItem;
+    if (!restItem.lastMessage) {
+      promotedIds.add(restItem.id);
+      return currentItem;
+    }
+
+    const currentTime = Date.parse(currentItem.lastMessage.createdAt);
+    const restTime = Date.parse(restItem.lastMessage.createdAt);
+    if (
+      currentTime > restTime ||
+      (currentTime === restTime &&
+        currentItem.lastMessage.id.localeCompare(restItem.lastMessage.id) > 0)
+    ) {
+      promotedIds.add(restItem.id);
+      return currentItem;
+    }
+
+    if (currentItem.lastMessage.id !== restItem.lastMessage.id) return restItem;
+    const currentStatus = currentItem.lastMessage.status;
+    const restStatus = restItem.lastMessage.status;
+    const status =
+      currentStatus &&
+      (!restStatus || statusRank[currentStatus] > statusRank[restStatus])
+        ? currentStatus
+        : restStatus;
+
+    return {
+      ...restItem,
+      lastMessage: { ...restItem.lastMessage, status },
+    };
+  });
+
+  if (promotedIds.size === 0) return merged;
+  const byId = new Map(merged.map((item) => [item.id, item]));
+  const promoted = currentItems
+    .filter((item) => promotedIds.has(item.id))
+    .map((item) => byId.get(item.id))
+    .filter((item): item is ConversationListItem => Boolean(item));
+  return [...promoted, ...merged.filter((item) => !promotedIds.has(item.id))];
+}
+
 export default function HomeScreen() {
   const { signOut, user } = useAuth();
-  const { acknowledgeDeliveredMessages } = useSocket();
+  const {
+    acknowledgeDeliveredMessages,
+    subscribeToMessageStatuses,
+    subscribeToNewMessages,
+  } = useSocket();
+  const isFocused = useIsFocused();
   const [conversations, setConversations] = useState<ConversationListItem[]>(
     []
   );
@@ -46,23 +120,142 @@ export default function HomeScreen() {
   const [reloadVersion, setReloadVersion] = useState(0);
   const hasLoaded = useRef(false);
   const retryRequested = useRef(false);
-  const scheme = useColorScheme() ?? 'light';
+  const conversationsRef = useRef<ConversationListItem[]>([]);
+  const liveRevision = useRef(0);
+  const scheme = useAppColorScheme();
   const c = colors[scheme];
   const styles = createStyles(c);
+
+  const replaceConversations = useCallback(
+    (items: ConversationListItem[], persist: boolean): void => {
+      conversationsRef.current = items;
+      setConversations(items);
+      if (persist && user?.id) {
+        void saveCachedConversations(user.id, items).catch(() => undefined);
+      }
+    },
+    [user?.id]
+  );
+
+  const updateLiveConversations = useCallback(
+    (
+      update: (current: ConversationListItem[]) => ConversationListItem[]
+    ): void => {
+      const current = conversationsRef.current;
+      const next = update(current);
+      if (next === current) return;
+      liveRevision.current += 1;
+      replaceConversations(next, true);
+    },
+    [replaceConversations]
+  );
 
   const openNewConversation = useCallback(() => {
     router.push('/(app)/new-conversation');
   }, []);
 
-  const openConversation = useCallback((conversation: ConversationListItem) => {
-    router.push({
-      pathname: '/(app)/conversation/[conversationId]',
-      params: {
-        conversationId: conversation.id,
-        participantName: conversation.participant.displayName,
-      },
-    });
-  }, []);
+  const openConversation = useCallback(
+    (conversation: ConversationListItem) => {
+      if (conversation.unreadCount > 0) {
+        replaceConversations(
+          conversationsRef.current.map((item) =>
+            item.id === conversation.id ? { ...item, unreadCount: 0 } : item
+          ),
+          true
+        );
+      }
+      router.push({
+        pathname: '/(app)/conversation/[conversationId]',
+        params: {
+          conversationId: conversation.id,
+          participantName: conversation.participant.displayName,
+        },
+      });
+    },
+    [replaceConversations]
+  );
+
+  useEffect(() => {
+    if (!user?.id) return;
+
+    const unsubscribeMessages = subscribeToNewMessages(
+      (message: SocketTextMessage) => {
+        let foundConversation = false;
+        updateLiveConversations((current) => {
+          const index = current.findIndex(
+            (conversation) => conversation.id === message.conversationId
+          );
+          if (index < 0) return current;
+          foundConversation = true;
+
+          const existing = current[index];
+          if (existing.lastMessage?.id === message.id) return current;
+          const isIncoming = message.senderId !== user.id;
+          const updated: ConversationListItem = {
+            ...existing,
+            updatedAt: message.createdAt,
+            lastMessage: {
+              id: message.id,
+              senderId: message.senderId,
+              content: message.content,
+              createdAt: message.createdAt,
+              status: isIncoming ? null : 'SENT',
+            },
+            unreadCount:
+              isIncoming && isInboxActuallyVisible(isFocused)
+                ? existing.unreadCount + 1
+                : existing.unreadCount,
+          };
+          return [
+            updated,
+            ...current.filter((_, itemIndex) => itemIndex !== index),
+          ];
+        });
+
+        if (!foundConversation && isFocused) {
+          setReloadVersion((version) => version + 1);
+        }
+      }
+    );
+
+    const unsubscribeStatuses = subscribeToMessageStatuses(
+      (update: MessageStatusUpdate) => {
+        updateLiveConversations((current) => {
+          const index = current.findIndex(
+            (conversation) => conversation.lastMessage?.id === update.messageId
+          );
+          if (index < 0) return current;
+          const conversation = current[index];
+          const lastMessage = conversation.lastMessage;
+          if (!lastMessage || lastMessage.senderId !== user.id) return current;
+          if (
+            lastMessage.status &&
+            statusRank[lastMessage.status] >= statusRank[update.status]
+          ) {
+            return current;
+          }
+
+          const next = [...current];
+          next[index] = {
+            ...conversation,
+            lastMessage: { ...lastMessage, status: update.status },
+          };
+          return next;
+        });
+      }
+    );
+
+    return () => {
+      unsubscribeMessages();
+      unsubscribeStatuses();
+    };
+  }, [
+    isFocused,
+    subscribeToMessageStatuses,
+    subscribeToNewMessages,
+    updateLiveConversations,
+    user?.id,
+  ]);
 
   useFocusEffect(
     useCallback(() => {
@@ -76,6 +269,7 @@ export default function HomeScreen() {
 
       const loadConversations = async (): Promise<void> => {
         if (!user?.id) return;
+        const startingLiveRevision = liveRevision.current;
         const hadInMemoryData = hasLoaded.current;
         const cachedPromise = getCachedConversations(user.id).catch(() => null);
         const livePromise = getConversations().then(
@@ -84,8 +278,8 @@ export default function HomeScreen() {
         );
         const cached = await cachedPromise;
 
-        if (isActive && cached) {
-          setConversations(cached);
+        if (isActive && cached && conversationsRef.current.length === 0) {
+          replaceConversations(cached, false);
           hasLoaded.current = true;
           setIsLoading(false);
         }
@@ -94,8 +288,12 @@ export default function HomeScreen() {
           const liveResult = await livePromise;
           if (!liveResult.ok) throw liveResult.error;
           const { items } = liveResult;
+          const nextItems =
+            liveRevision.current === startingLiveRevision
+              ? items
+              : mergeRestWithLiveConversations(items, conversationsRef.current);
           void Promise.all([
-            saveCachedConversations(user.id, items),
+            saveCachedConversations(user.id, nextItems),
             retainCachedMessageHistories(
               user.id,
               items.map((item) => item.id)
@@ -107,7 +305,7 @@ export default function HomeScreen() {
               item.lastMessage ? [item.lastMessage] : []
             )
           );
-          setConversations(items);
+          replaceConversations(nextItems, false);
           setErrorMessage(null);
           setIsOffline(false);
           hasLoaded.current = true;
@@ -129,7 +327,12 @@ export default function HomeScreen() {
       return () => {
         isActive = false;
       };
-    }, [acknowledgeDeliveredMessages, reloadVersion, user?.id])
+    }, [
+      acknowledgeDeliveredMessages,
+      reloadVersion,
+      replaceConversations,
+      user?.id,
+    ])
   );
 
   const retry = useCallback(() => {
@@ -141,22 +344,36 @@ export default function HomeScreen() {
   return (
     <SafeAreaView edges={['top']} style={styles.safeArea}>
       <View style={styles.header}>
-        <Text style={styles.title}>Envelo</Text>
-        <View style={styles.headerActions}>
-          <Pressable
-            accessibilityRole="button"
-            onPress={openNewConversation}
-            style={styles.headerButton}
-          >
-            <Text style={styles.newConversationText}>New conversation</Text>
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            onPress={() => void signOut()}
-            style={styles.headerButton}
-          >
-            <Text style={styles.logoutText}>Log out</Text>
-          </Pressable>
+        <View style={styles.headerTopRow}>
+          <Text style={styles.title}>Envelo</Text>
+          <View style={styles.headerActions}>
+            <Pressable
+              accessibilityLabel="New conversation"
+              accessibilityRole="button"
+              onPress={openNewConversation}
+              style={({ pressed }) => [
+                styles.composeButton,
+                pressed && styles.headerButtonPressed,
+              ]}
+            >
+              <MaterialIcons color={c.onAccent} name="edit" size={22} />
+            </Pressable>
+            <Pressable
+              accessibilityLabel="Log out"
+              accessibilityRole="button"
+              onPress={() => void signOut()}
+              style={({ pressed }) => [
+                styles.iconButton,
+                pressed && styles.headerButtonPressed,
+              ]}
+            >
+              <MaterialIcons color={c.textMuted} name="logout" size={22} />
+            </Pressable>
+          </View>
+        </View>
+        <View style={styles.themeRow}>
+          <Text style={styles.themeLabel}>Theme</Text>
+          <ThemeToggle />
         </View>
       </View>
 
@@ -197,6 +414,7 @@ export default function HomeScreen() {
           renderItem={({ item }) => (
             <ConversationRow
               conversation={item}
+              currentUserId={user?.id ?? ''}
               onPress={() => openConversation(item)}
             />
           )}
@@ -213,7 +431,7 @@ const createStyles = (c: typeof colors.light) =>
       alignItems: 'center',
       flex: 1,
       justifyContent: 'center',
-      padding: 32,
+      padding: spacing.xl,
     },
     emptyList: { flexGrow: 1 },
     errorText: {
@@ -223,41 +441,63 @@ const createStyles = (c: typeof colors.light) =>
       textAlign: 'center',
     },
     header: {
-      alignItems: 'center',
       borderBottomColor: c.border,
       borderBottomWidth: StyleSheet.hairlineWidth,
+      gap: spacing.md,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.md,
+    },
+    headerActions: {
+      alignItems: 'center',
+      flexDirection: 'row',
+      gap: spacing.sm,
+    },
+    headerButtonPressed: { opacity: 0.72 },
+    headerTopRow: {
+      alignItems: 'center',
       flexDirection: 'row',
       justifyContent: 'space-between',
-      paddingHorizontal: 20,
-      paddingVertical: 14,
     },
-    headerActions: { alignItems: 'flex-end', gap: 4 },
-    headerButton: { paddingHorizontal: 4, paddingVertical: 4 },
+    composeButton: {
+      alignItems: 'center',
+      backgroundColor: c.accentPrimary,
+      borderRadius: spacing.lg,
+      height: spacing.xl + spacing.md,
+      justifyContent: 'center',
+      width: spacing.xl + spacing.md,
+    },
+    iconButton: {
+      alignItems: 'center',
+      borderRadius: spacing.lg,
+      height: spacing.xl + spacing.md,
+      justifyContent: 'center',
+      width: spacing.xl + spacing.md,
+    },
     list: { flex: 1 },
-    logoutText: { color: c.textMuted, fontSize: 14, fontWeight: '500' },
-    newConversationText: {
-      color: c.accentPrimary,
-      fontSize: 14,
-      fontWeight: '600',
-    },
     offlineNotice: {
       alignItems: 'center',
       backgroundColor: c.bgSurface,
       borderBottomColor: c.border,
       borderBottomWidth: StyleSheet.hairlineWidth,
-      paddingHorizontal: 16,
-      paddingVertical: 7,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.sm,
     },
     offlineNoticeText: { color: c.textMuted, fontSize: 12 },
     retryButton: {
       backgroundColor: c.accentPrimary,
       borderRadius: radius.sm,
-      marginTop: 20,
-      paddingHorizontal: 18,
-      paddingVertical: 12,
+      marginTop: spacing.lg,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.sm,
     },
     retryButtonText: { color: c.bgBase, fontSize: 15, fontWeight: '600' },
     safeArea: { backgroundColor: c.bgBase, flex: 1 },
-    stateText: { color: c.textMuted, fontSize: 15, marginTop: 12 },
+    stateText: { color: c.textMuted, fontSize: 15, marginTop: spacing.sm },
+    themeLabel: { color: c.textMuted, fontSize: 12, fontWeight: '600' },
+    themeRow: {
+      alignItems: 'center',
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+    },
     title: { color: c.textPrimary, fontSize: 28, fontWeight: '700' },
   });

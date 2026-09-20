@@ -5,21 +5,18 @@ import {
 } from '@react-navigation/native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import {
-  ActivityIndicator,
-  StyleSheet,
-  useColorScheme,
-  View,
-} from 'react-native';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import 'react-native-reanimated';
 
 import { colors } from '@/constants/theme';
 import { AuthProvider, useAuth } from '@/lib/auth/AuthContext';
 import { SocketProvider } from '@/lib/socket/SocketContext';
+import { AppThemeProvider } from '@/lib/theme/ThemeContext';
+import { useAppColorScheme } from '@/lib/theme/useAppColorScheme';
 
 function RootNavigator() {
   const { isLoading, user } = useAuth();
-  const scheme = useColorScheme() ?? 'light';
+  const scheme = useAppColorScheme();
   const c = colors[scheme];
   const styles = createStyles(c);
 
@@ -43,7 +40,15 @@ function RootNavigator() {
 }
 
 export default function RootLayout() {
-  const scheme = useColorScheme() ?? 'light';
+  return (
+    <AppThemeProvider>
+      <ThemedRootLayout />
+    </AppThemeProvider>
+  );
+}
+
+function ThemedRootLayout() {
+  const scheme = useAppColorScheme();
   return (
     <ThemeProvider value={scheme === 'dark' ? DarkTheme : DefaultTheme}>
       <AuthProvider>

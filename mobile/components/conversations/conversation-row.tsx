@@ -1,20 +1,29 @@
-import { Pressable, StyleSheet, Text, useColorScheme } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { colors } from '@/constants/theme';
+import { MessageStatusIcon } from '@/components/chat/message-status-icon';
+import { ConversationAvatar } from '@/components/conversations/conversation-avatar';
+import { UnreadBadge } from '@/components/conversations/unread-badge';
+import { colors, spacing } from '@/constants/theme';
 import type { ConversationListItem } from '@/lib/api/conversations';
+import { formatInboxTimestamp } from '@/lib/format/timestamp';
+import { useAppColorScheme } from '@/lib/theme/useAppColorScheme';
 
 interface ConversationRowProps {
   conversation: ConversationListItem;
+  currentUserId: string;
   onPress: () => void;
 }
 
 export function ConversationRow({
   conversation,
+  currentUserId,
   onPress,
 }: ConversationRowProps) {
-  const scheme = useColorScheme() ?? 'light';
+  const scheme = useAppColorScheme();
   const c = colors[scheme];
   const styles = createStyles(c);
+  const lastMessage = conversation.lastMessage;
+  const isOutgoing = lastMessage?.senderId === currentUserId;
 
   return (
     <Pressable
@@ -26,8 +35,37 @@ export function ConversationRow({
         pressed && styles.containerPressed,
       ]}
     >
-      <Text style={styles.name}>{conversation.participant.displayName}</Text>
-      <Text style={styles.email}>{conversation.participant.email}</Text>
+      <ConversationAvatar
+        name={conversation.participant.displayName}
+        userId={conversation.participant.id}
+      />
+      <View style={styles.content}>
+        <Text numberOfLines={1} style={styles.name}>
+          {conversation.participant.displayName}
+        </Text>
+        <View style={styles.previewRow}>
+          {isOutgoing && lastMessage ? (
+            <View style={styles.statusIcon}>
+              <MessageStatusIcon
+                color={c.textMuted}
+                size={15}
+                status={lastMessage.status}
+              />
+            </View>
+          ) : null}
+          <Text numberOfLines={1} style={styles.preview}>
+            {lastMessage
+              ? (lastMessage.content ?? 'Message')
+              : 'No messages yet'}
+          </Text>
+        </View>
+      </View>
+      <View style={styles.trailing}>
+        <Text style={styles.timestamp}>
+          {lastMessage ? formatInboxTimestamp(lastMessage.createdAt) : ''}
+        </Text>
+        <UnreadBadge count={conversation.unreadCount} />
+      </View>
     </Pressable>
   );
 }
@@ -35,12 +73,26 @@ export function ConversationRow({
 const createStyles = (c: typeof colors.light) =>
   StyleSheet.create({
     container: {
+      alignItems: 'center',
       borderBottomColor: c.border,
       borderBottomWidth: StyleSheet.hairlineWidth,
-      paddingHorizontal: 20,
-      paddingVertical: 18,
+      flexDirection: 'row',
+      gap: spacing.md,
+      minHeight: spacing.xl * 2 + spacing.sm,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.md,
     },
     containerPressed: { backgroundColor: c.bgSurface },
-    email: { color: c.textMuted, fontSize: 14, marginTop: 4 },
-    name: { color: c.textPrimary, fontSize: 17, fontWeight: '600' },
+    content: { flex: 1, gap: spacing.xs, minWidth: 0 },
+    name: { color: c.textPrimary, fontSize: 16, fontWeight: '700' },
+    preview: { color: c.textMuted, flex: 1, fontSize: 14 },
+    previewRow: { alignItems: 'center', flexDirection: 'row', minWidth: 0 },
+    statusIcon: { marginRight: spacing.xs },
+    timestamp: { color: c.textMuted, fontSize: 12 },
+    trailing: {
+      alignSelf: 'stretch',
+      alignItems: 'flex-end',
+      justifyContent: 'space-between',
+      paddingVertical: spacing.xs,
+    },
   });

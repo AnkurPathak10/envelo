@@ -1,14 +1,8 @@
-import {
-  Pressable,
-  StyleSheet,
-  Text,
-  TextInput,
-  useColorScheme,
-  View,
-} from 'react-native';
+import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { colors, radius } from '@/constants/theme';
 import type { SocketConnectionState } from '@/lib/socket/SocketContext';
+import { useAppColorScheme } from '@/lib/theme/useAppColorScheme';
 
 interface MessageComposerProps {
   connectionState: SocketConnectionState;
@@ -42,7 +36,7 @@ export function MessageComposer({
   sendError,
   value,
 }: MessageComposerProps) {
-  const scheme = useColorScheme() ?? 'light';
+  const scheme = useAppColorScheme();
   const c = colors[scheme];
   const styles = createStyles(c);
   const isSendDisabled = isSending || !value.trim();

@@ -4,11 +4,11 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
-- Features 03, 04, 06, 09, 11, 13, 14, and 15 implemented - pending remaining manual real-device verification; Features 05, 07, 08, 10, and 12 complete
+- Features 03, 04, 06, 09, 11, 13, 14, 15, and 16 implemented - pending remaining manual real-device verification; Features 05, 07, 08, 10, and 12 complete
 
 ## Current Goal
 
-- Implement Feature 16's mobile live inbox, UX polish, and manual theme toggle
+- Complete Feature 16's ten-case real-device/browser verification checklist
 
 ## Completed
 
@@ -235,6 +235,22 @@ Update this file after every meaningful implementation change.
   - CodeRabbit follow-up: authorization retention now enumerates the user's actual AsyncStorage history keys rather than trusting only the LRU index. Unauthorized, malformed, and over-limit orphan entries are deleted, while authorized orphan entries are restored to the index as least-recently-used, closing the interrupted-write gap without weakening the 20-conversation bound.
   - Follow-up validation passes: mobile full Prettier, `npx tsc --noEmit`, and Expo lint; socket-server source type-check/production emit, Prettier, strict harness type-check, and live offline-queue verification; backend production build; Prisma migration status; and repository `git diff --check`. No REST endpoint changed.
 
+- Feature 16: Mobile Live Inbox, UX Polish, and Theme Toggle implemented:
+  - Added a persisted app-level theme provider with `light`, `dark`, and `system` preferences. AsyncStorage writes are serialized, the system option follows device appearance live, and the effective scheme now drives React Navigation, the status bar, auth screens, the inbox, chat, New conversation, and legacy themed components through one shared hook.
+  - Replaced every screen/component import of React Native's raw `useColorScheme` with the shared app-theme hook; only `ThemeContext` reads the native system value. The existing compatibility hooks now delegate to the same context so the manual override cannot silently stop at a nested screen.
+  - Added the specified `xs` through `xl` spacing scale and used it throughout the redesigned inbox controls and rows. Added an `onAccent` color token so icon, badge, avatar, and selected-toggle text remain legible without component-level white color literals.
+  - Rebuilt each conversation row with a deterministic 48×48 initials avatar, bold participant name, single-line last-message preview, shared relative timestamp formatter, capped `99+` unread badge, and the same shared pending/sent/read icon renderer used by chat bubbles. Empty conversations display `No messages yet`.
+  - Replaced the unfinished text-only New conversation action with an accessible filled compose icon, retained an accessible logout icon, and added an accessible three-way theme segmented control in the inbox header without changing either action's navigation/auth behavior.
+  - Subscribed the mounted inbox to the existing `message:new` and `message:status` streams. Known conversations update their preview and timestamp immediately, move to the top, increment unread only for incoming messages while the inbox is actually visible, and update outgoing last-message ticks monotonically without refetching.
+  - Live list changes are written back to the Feature 15 conversation cache. Cache writes are now serialized so rapid socket events cannot finish out of order, duplicate message IDs cannot double-increment unread counts, and a REST response racing a newer socket event preserves the newer row while keeping the REST list as the baseline.
+  - Opening a conversation clears its badge optimistically in memory and cache; the existing chat read acknowledgement plus the inbox focus refresh remain authoritative. Unknown live conversation IDs trigger a focused REST refresh because the socket payload intentionally does not duplicate participant profile data.
+  - Reviewed the Expo SDK 54 reference before implementation. Final full-mobile Prettier, `npx tsc --noEmit`, Expo lint with zero warnings, and repository `git diff --check` pass. No backend, socket-server, Prisma schema, migration, API contract, or dependency changed.
+
+- Inbox orphan-conversation resilience repair:
+  - Diagnosed the Expo Go `GET /api/conversations` 500 as legacy database data created when users were manually deleted from Neon: the remaining participant can still see a direct conversation whose other participant row was cascade-deleted.
+  - The inbox route now filters out conversations with no other participant before mapping them to the mobile contract. Valid conversations continue unchanged, while a malformed legacy row can no longer make the complete inbox fail with a 500.
+  - Backend Prettier, `npx tsc --noEmit`, and repository `git diff --check` pass. A local direct Prisma maintenance connection could not complete its Windows TLS channel-binding handshake, so the orphan rows themselves have not been deleted from Neon; they are safely excluded and can be cleaned up later through the Neon SQL console.
+
 ## In Progress
 
 - Feature 03 manual real-device verification (signup, persistent session refresh, logout, and backend error states).
@@ -246,10 +262,12 @@ Update this file after every meaningful implementation change.
 - Feature 13 manual two-device verification: re-validate `SENT`/`DELIVERED` as a legible single tick, focused-chat `READ` as a double tick, inbox delivery, background/reconnect catch-up, absence of ticks on incoming bubbles, and light/dark contrast. Confirm native background state and hidden browser tabs defer read acknowledgement until visibility returns. The implementation and static checks are complete; this follow-up real-device/browser verification remains pending.
 - Feature 14 manual two-device verification: validate instant online clock-to-tick reconciliation, airplane-mode queueing, force-close/cold-start persistence, automatic recovery, strict same-conversation ordering, independent multi-conversation flushing, and light/dark clock presentation. Server idempotency is live-verified; the physical-device queue and restart scenarios remain pending.
 - Feature 15 manual two-device verification: validate cached chat and inbox rendering in airplane mode (including force-close/reopen), switching among multiple previously opened chats, the expected error for a never-opened chat, reconnect merge/de-duplication, genuine HTTP-error handling, and light/dark offline-notice presentation. The implementation and static checks are complete; these physical-device/browser scenarios remain pending.
+- Feature 16 manual real-device/browser verification: run all ten specification checks for persisted Light/Dark/System behavior, cross-screen theme consistency, two-account live row movement and unread clearing, empty previews, deterministic avatars, timestamp cases, and inbox appearance. The implementation and static checks are complete; this physical-device/browser validation remains pending.
+- Optional Neon data hygiene: delete the legacy conversations with fewer than two participants through the Neon SQL console once a browser session or working direct maintenance connection is available. The app no longer depends on this cleanup because the inbox route excludes them.
 
 ## Next Up
 
-- Feature 16: Mobile Live Inbox, UX polish, and theme toggle (live row movement, preview/timestamp, unread badge, improved New conversation/header controls, and a manual light/dark switch).
+- Decide whether to schedule an optional screen-by-screen visual polish pass (chat bubbles, auth, and New conversation) or proceed directly to the next product feature such as Feature 17 media.
 
 ## Open Questions
 
@@ -259,9 +277,13 @@ Update this file after every meaningful implementation change.
 - ~~Exact Socket.IO reconnection behavior~~ — Resolved in Feature 11 with
   bounded retry backoff, foreground recovery, and history re-sync; Feature 14
   now provides durable offline queueing and ordered reconnect flushing
-- Conversation-list UX review: the current text-only New conversation action
-  looks visually distorted/unfinished and must become a polished icon/button
-  during Feature 16's mobile inbox work.
+- ~~Conversation-list UX review: the text-only New conversation action looked
+  distorted/unfinished~~ — Resolved in Feature 16 with a padded, accessible
+  compose icon button in the inbox header.
+- Optional visual follow-up: decide whether a separate screen-by-screen polish
+  feature is wanted for chat bubbles, authentication, and New conversation;
+  Feature 16 intentionally kept those screens out of redesign scope while
+  making them all honor the manual theme preference.
 - Docker: Ankur wants to containerize `backend/` and
   `socket-server/` for local dev and deployment — timing TBD,
   planned for once `socket-server/` has real code to containerize

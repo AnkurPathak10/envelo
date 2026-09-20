@@ -3,12 +3,12 @@ import {
   Pressable,
   StyleSheet,
   Text,
-  useColorScheme,
   View,
 } from 'react-native';
 
 import { colors } from '@/constants/theme';
 import type { ConversationParticipant } from '@/lib/api/conversations';
+import { useAppColorScheme } from '@/lib/theme/useAppColorScheme';
 
 interface UserSearchResultProps {
   isCreating: boolean;
@@ -23,7 +23,7 @@ export function UserSearchResult({
   onPress,
   user,
 }: UserSearchResultProps) {
-  const scheme = useColorScheme() ?? 'light';
+  const scheme = useAppColorScheme();
   const c = colors[scheme];
   const styles = createStyles(c);
 

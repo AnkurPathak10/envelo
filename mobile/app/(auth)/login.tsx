@@ -9,11 +9,11 @@ import {
   Text,
   TextInput,
   View,
-  useColorScheme,
 } from 'react-native';
 import { ApiError } from '@/lib/api/client';
 import { useAuth } from '@/lib/auth/AuthContext';
 import { colors } from '@/constants/theme';
+import { useAppColorScheme } from '@/lib/theme/useAppColorScheme';
 const schema = z.object({
   email: z.email('Enter a valid email address'),
   password: z.string().min(1, 'Password is required'),
@@ -21,7 +21,7 @@ const schema = z.object({
 type FormValues = z.infer<typeof schema>;
 export default function LoginScreen() {
   const { signIn } = useAuth();
-  const scheme = useColorScheme() ?? 'light';
+  const scheme = useAppColorScheme();
   const c = colors[scheme];
   const styles = createStyles(c);
   const {
