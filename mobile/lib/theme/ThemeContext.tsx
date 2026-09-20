@@ -9,7 +9,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import { useColorScheme as useSystemColorScheme } from 'react-native';
+import { Platform, useColorScheme as useSystemColorScheme } from 'react-native';
 
 export type ThemePreference = 'light' | 'dark' | 'system';
 export type AppColorScheme = 'light' | 'dark';
@@ -32,7 +32,12 @@ function isThemePreference(value: string | null): value is ThemePreference {
 export function AppThemeProvider({ children }: PropsWithChildren) {
   const systemColorScheme = useSystemColorScheme();
   const [preference, setPreferenceState] = useState<ThemePreference>('system');
+  const [hasHydrated, setHasHydrated] = useState(Platform.OS !== 'web');
   const preferenceRevision = useRef(0);
+
+  useEffect(() => {
+    if (Platform.OS === 'web') setHasHydrated(true);
+  }, []);
 
   useEffect(() => {
     const revision = preferenceRevision.current;
@@ -70,7 +75,11 @@ export function AppThemeProvider({ children }: PropsWithChildren) {
   );
 
   const colorScheme: AppColorScheme =
-    preference === 'system' ? (systemColorScheme ?? 'light') : preference;
+    preference === 'system'
+      ? hasHydrated
+        ? (systemColorScheme ?? 'light')
+        : 'light'
+      : preference;
   const value = useMemo(
     () => ({ preference, colorScheme, setPreference }),
     [colorScheme, preference, setPreference]

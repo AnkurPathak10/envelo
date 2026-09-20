@@ -189,6 +189,19 @@ export default function HomeScreen() {
           foundConversation = true;
 
           const existing = current[index];
+          if (existing.lastMessage) {
+            const existingTime = Date.parse(existing.lastMessage.createdAt);
+            const messageTime = Date.parse(message.createdAt);
+            if (
+              Number.isFinite(existingTime) &&
+              Number.isFinite(messageTime) &&
+              (existingTime > messageTime ||
+                (existingTime === messageTime &&
+                  existing.lastMessage.id.localeCompare(message.id) > 0))
+            ) {
+              return current;
+            }
+          }
           if (existing.lastMessage?.id === message.id) return current;
           const isIncoming = message.senderId !== user.id;
           const updated: ConversationListItem = {

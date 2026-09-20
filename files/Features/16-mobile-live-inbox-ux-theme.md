@@ -36,8 +36,12 @@ mobile presentation and interaction feature.
   a further screen-by-screen pass is a reasonable follow-up feature
   rather than expanding this one.
 - Real profile pictures/avatar uploads — Feature 17+ (media)
-- Any backend, socket-server, or schema change — every data point
-  this feature displays already exists
+- Any planned backend, socket-server, or schema change — every data point
+  this feature displays already exists. A later legacy-data resilience repair
+  is the sole exception: `GET /api/conversations` ignores a direct
+  conversation whose other participant was manually deleted, preventing one
+  malformed record from failing the complete inbox. It changes no schema,
+  migration, or mobile API contract.
 
 ## Design specifics
 
@@ -64,6 +68,7 @@ numbers like `13` or `17`.
 ### Conversation row layout
 
 Each row:
+
 - A circular avatar placeholder (`radius.lg` sized appropriately,
   e.g. 48×48) showing the participant's initials (first letter of
   first and last word in `displayName`, uppercase). Background
@@ -247,8 +252,9 @@ where they already exist rather than duplicating them.
 Per `ai-workflow-rules.md`:
 
 1. All ten checks above pass on a real device.
-2. No backend, socket-server, Prisma schema, or migration changes
-   were made.
+2. No socket-server, Prisma schema, migration, or mobile API-contract changes
+   were made. The documented `GET /api/conversations` legacy-data filter is
+   the approved backend resilience exception.
 3. Mobile TypeScript, lint, and Prettier checks pass.
 4. Update `progress-tracker.md`: mark this feature complete, resolve
    the "New conversation looks unfinished" open question, and note

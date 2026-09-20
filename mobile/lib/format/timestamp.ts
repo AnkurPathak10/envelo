@@ -2,8 +2,10 @@ const MINUTE_MS = 60_000;
 const HOUR_MS = 60 * MINUTE_MS;
 const DAY_MS = 24 * HOUR_MS;
 
-function startOfDay(value: Date): Date {
-  return new Date(value.getFullYear(), value.getMonth(), value.getDate());
+function calendarDay(value: Date): number {
+  return (
+    Date.UTC(value.getFullYear(), value.getMonth(), value.getDate()) / DAY_MS
+  );
 }
 
 function isSameDay(left: Date, right: Date): boolean {
@@ -32,9 +34,7 @@ export function formatInboxTimestamp(
     });
   }
 
-  const elapsedDays = Math.floor(
-    (startOfDay(now).getTime() - startOfDay(timestamp).getTime()) / DAY_MS
-  );
+  const elapsedDays = calendarDay(now) - calendarDay(timestamp);
   if (elapsedDays === 1) return 'Yesterday';
   if (elapsedDays > 1 && elapsedDays < 7) {
     return timestamp.toLocaleDateString([], { weekday: 'short' });
