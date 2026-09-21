@@ -6,6 +6,7 @@ import {
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { KeyboardProvider } from 'react-native-keyboard-controller';
 import 'react-native-reanimated';
 
 import { colors } from '@/constants/theme';
@@ -41,9 +42,11 @@ function RootNavigator() {
 
 export default function RootLayout() {
   return (
-    <AppThemeProvider>
-      <ThemedRootLayout />
-    </AppThemeProvider>
+    <KeyboardProvider enabled={false} preload={false}>
+      <AppThemeProvider>
+        <ThemedRootLayout />
+      </AppThemeProvider>
+    </KeyboardProvider>
   );
 }
 

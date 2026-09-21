@@ -6,13 +6,16 @@ import {
   AppState,
   type AppStateStatus,
   FlatList,
-  KeyboardAvoidingView,
   Platform,
   Pressable,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
+import {
+  KeyboardStickyView,
+  useKeyboardController,
+} from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { MessageBubble } from '@/components/chat/message-bubble';
@@ -70,6 +73,7 @@ function isCurrentAppViewVisible(): boolean {
 export function ChatScreen({ conversationId }: ChatScreenProps) {
   const { user } = useAuth();
   const isFocused = useIsFocused();
+  const { setEnabled: setKeyboardControllerEnabled } = useKeyboardController();
   const {
     acknowledgeDeliveredMessages,
     connectionState,
@@ -97,7 +101,11 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
     isCurrentAppViewVisible
   );
   const listRef = useRef<FlatList<RenderableTextMessage>>(null);
-  const pendingScroll = useRef<{ animated: boolean } | null>(null);
+  const pendingScroll = useRef<{
+    animated: boolean;
+    remainingFrames: number;
+  } | null>(null);
+  const isScrollFlushScheduled = useRef(false);
   const observedConnectionEpoch = useRef(connectionEpoch);
   const loadedConversationId = useRef<string | null>(null);
   const pendingMessagesRef = useRef(pendingMessages);
@@ -107,8 +115,28 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
   const styles = createStyles(c);
 
   const requestScrollToEnd = useCallback((animated: boolean): void => {
-    pendingScroll.current = { animated };
+    const currentRequest = pendingScroll.current;
+    if (currentRequest) {
+      currentRequest.animated = animated;
+      currentRequest.remainingFrames = animated ? 1 : 4;
+      return;
+    }
+
+    pendingScroll.current = {
+      animated,
+      // Initial rendering can report its layout before all variable-height rows
+      // have been measured. A few non-animated frames make the opening position
+      // deterministic without affecting a user's later scroll position.
+      remainingFrames: animated ? 1 : 4,
+    };
   }, []);
+
+  useEffect(() => {
+    if (!isFocused) return;
+
+    setKeyboardControllerEnabled(true);
+    return () => setKeyboardControllerEnabled(false);
+  }, [isFocused, setKeyboardControllerEnabled]);
 
   useEffect(() => {
     if (Platform.OS === 'web') {
@@ -178,8 +206,8 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
         );
         setNextCursor(cached.nextCursor);
         loadedConversationId.current = conversationId;
+        if (isInitialLoad) requestScrollToEnd(false);
         setInitialState('loaded');
-        requestScrollToEnd(false);
       }
 
       try {
@@ -211,8 +239,8 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
         loadedConversationId.current = conversationId;
         setInitialError(null);
         setIsOffline(false);
+        if (isInitialLoad) requestScrollToEnd(false);
         setInitialState('loaded');
-        requestScrollToEnd(false);
       } catch (error: unknown) {
         if (!isActive) return;
         if (error instanceof ApiError && error.status === 404) {
@@ -415,11 +443,29 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
     user?.id,
   ]);
 
-  const handleContentSizeChange = useCallback(() => {
-    const scroll = pendingScroll.current;
-    if (!scroll) return;
-    pendingScroll.current = null;
-    listRef.current?.scrollToEnd({ animated: scroll.animated });
+  const flushPendingScroll = useCallback(() => {
+    const requestedScroll = pendingScroll.current;
+    if (!requestedScroll || isScrollFlushScheduled.current) return;
+
+    const scrollToEnd = (): void => {
+      if (pendingScroll.current !== requestedScroll) {
+        isScrollFlushScheduled.current = false;
+        return;
+      }
+      listRef.current?.scrollToEnd({ animated: requestedScroll.animated });
+      requestedScroll.remainingFrames -= 1;
+
+      if (requestedScroll.remainingFrames > 0) {
+        requestAnimationFrame(scrollToEnd);
+        return;
+      }
+
+      pendingScroll.current = null;
+      isScrollFlushScheduled.current = false;
+    };
+
+    isScrollFlushScheduled.current = true;
+    requestAnimationFrame(scrollToEnd);
   }, []);
 
   const retryInitialHistory = useCallback(() => {
@@ -469,10 +515,7 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
   }
 
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      style={styles.container}
-    >
+    <View style={styles.container}>
       {isOffline ? (
         <View style={styles.offlineNotice}>
           <Text style={styles.offlineNoticeText}>
@@ -520,7 +563,8 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
           ) : null
         }
         maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
-        onContentSizeChange={handleContentSizeChange}
+        onContentSizeChange={flushPendingScroll}
+        onLayout={flushPendingScroll}
         ref={listRef}
         renderItem={({ item }) => (
           <MessageBubble
@@ -530,21 +574,23 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
         )}
         style={styles.list}
       />
-      <SafeAreaView edges={['bottom']} style={styles.composerSafeArea}>
-        <MessageComposer
-          connectionState={connectionState}
-          isSending={isSending}
-          onChangeText={(value) => {
-            setDraft(value);
-            if (sendError) setSendError(null);
-          }}
-          onRetryConnection={retryConnection}
-          onSend={() => void sendDraft()}
-          sendError={sendError}
-          value={draft}
-        />
-      </SafeAreaView>
-    </KeyboardAvoidingView>
+      <KeyboardStickyView>
+        <SafeAreaView edges={['bottom']} style={styles.composerSafeArea}>
+          <MessageComposer
+            connectionState={connectionState}
+            isSending={isSending}
+            onChangeText={(value) => {
+              setDraft(value);
+              if (sendError) setSendError(null);
+            }}
+            onRetryConnection={retryConnection}
+            onSend={() => void sendDraft()}
+            sendError={sendError}
+            value={draft}
+          />
+        </SafeAreaView>
+      </KeyboardStickyView>
+    </View>
   );
 }
 
@@ -557,7 +603,7 @@ const createStyles = (c: typeof colors.light) =>
       justifyContent: 'center',
       padding: 32,
     },
-    composerSafeArea: { backgroundColor: c.bgBase },
+    composerSafeArea: { backgroundColor: c.bgBase, paddingBottom: 8 },
     container: { backgroundColor: c.bgBase, flex: 1 },
     earlierButton: {
       borderColor: c.border,
