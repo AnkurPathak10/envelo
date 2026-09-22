@@ -101,6 +101,7 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
   const [isMediaBusy, setIsMediaBusy] = useState(false);
   const [mediaRetry, setMediaRetry] = useState<{
     clientMessageId: string;
+    conversationId: string;
     mediaUrl: string;
   } | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
@@ -465,12 +466,17 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
     const draftAtSend = draft;
 
     try {
-      let media = mediaRetry;
+      let media =
+        mediaRetry?.conversationId === conversationId ? mediaRetry : null;
       if (!media) {
         const image = await pickCompressedImage();
         if (!image) return;
         const mediaUrl = await uploadImage(image);
-        media = { mediaUrl, clientMessageId: createClientMessageId() };
+        media = {
+          mediaUrl,
+          clientMessageId: createClientMessageId(),
+          conversationId,
+        };
         setMediaRetry(media);
       }
 

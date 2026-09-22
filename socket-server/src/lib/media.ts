@@ -5,11 +5,13 @@ export function isImageKitUrl(value: string): boolean {
     const endpoint = new URL(env.imageKitUrlEndpoint);
     const candidate = new URL(value);
     const endpointPath = endpoint.pathname.replace(/\/+$/, "");
+    const assetPathPrefix = `${endpointPath}/`;
+    const assetPath = candidate.pathname.slice(assetPathPrefix.length);
     return (
       candidate.protocol === endpoint.protocol &&
       candidate.host === endpoint.host &&
-      (candidate.pathname === endpointPath ||
-        candidate.pathname.startsWith(`${endpointPath}/`))
+      candidate.pathname.startsWith(assetPathPrefix) &&
+      assetPath.split("/").some(Boolean)
     );
   } catch {
     return false;

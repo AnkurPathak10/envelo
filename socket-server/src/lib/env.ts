@@ -22,11 +22,30 @@ function readDatabaseUrl(value: string | undefined): string {
 
 function readImageKitUrlEndpoint(value: string | undefined): string {
   if (!value?.trim()) throw new Error("IMAGEKIT_URL_ENDPOINT must be set.");
+
+  let endpoint: URL;
   try {
-    return new URL(value.trim()).toString().replace(/\/+$/, "");
+    endpoint = new URL(value.trim());
   } catch {
     throw new Error("IMAGEKIT_URL_ENDPOINT must be a valid URL.");
   }
+
+  if (endpoint.protocol !== "https:") {
+    throw new Error("IMAGEKIT_URL_ENDPOINT must use HTTPS.");
+  }
+  if (
+    endpoint.username ||
+    endpoint.password ||
+    endpoint.search ||
+    endpoint.hash
+  ) {
+    throw new Error(
+      "IMAGEKIT_URL_ENDPOINT cannot include credentials, a query, or a fragment.",
+    );
+  }
+
+  const endpointPath = endpoint.pathname.replace(/\/+$/, "");
+  return `${endpoint.origin}${endpointPath}`;
 }
 
 export const env = {

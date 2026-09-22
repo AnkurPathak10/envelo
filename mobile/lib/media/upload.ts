@@ -6,6 +6,7 @@ import { ApiError, apiRequest } from '@/lib/api/client';
 
 const MAX_IMAGE_DIMENSION = 1600;
 const IMAGE_QUALITY = 0.7;
+const IMAGE_UPLOAD_TIMEOUT_MS = 60_000;
 const IMAGEKIT_UPLOAD_URL = 'https://upload.imagekit.io/api/v1/files/upload';
 
 interface UploadCredentials {
@@ -83,11 +84,13 @@ function belongsToEndpoint(url: string, endpointValue: string): boolean {
     const endpoint = new URL(endpointValue);
     const candidate = new URL(url);
     const endpointPath = endpoint.pathname.replace(/\/+$/, '');
+    const assetPathPrefix = `${endpointPath}/`;
+    const assetPath = candidate.pathname.slice(assetPathPrefix.length);
     return (
       candidate.protocol === endpoint.protocol &&
       candidate.host === endpoint.host &&
-      (candidate.pathname === endpointPath ||
-        candidate.pathname.startsWith(`${endpointPath}/`))
+      candidate.pathname.startsWith(assetPathPrefix) &&
+      assetPath.split('/').some(Boolean)
     );
   } catch {
     return false;
@@ -117,17 +120,29 @@ export async function uploadImage(image: PreparedImage): Promise<string> {
   formData.append('expire', String(credentials.expire));
   formData.append('signature', credentials.signature);
 
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), IMAGE_UPLOAD_TIMEOUT_MS);
+
   let response: Response;
   try {
     response = await fetch(IMAGEKIT_UPLOAD_URL, {
       method: 'POST',
       body: formData,
+      signal: controller.signal,
     });
   } catch {
+    if (controller.signal.aborted) {
+      throw new ApiError(
+        'The image upload timed out. Check your connection and try again.',
+        0
+      );
+    }
     throw new ApiError(
       'Unable to upload the image. Check your connection and try again.',
       0
     );
+  } finally {
+    clearTimeout(timeout);
   }
   if (!response.ok) throw new Error(await uploadErrorMessage(response));
 
