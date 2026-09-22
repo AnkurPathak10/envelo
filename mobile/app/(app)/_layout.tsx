@@ -17,6 +17,10 @@ export default function AppLayout() {
     >
       <Stack.Screen name="home" options={{ headerShown: false }} />
       <Stack.Screen
+        name="profile"
+        options={{ headerBackTitle: 'Back', title: 'Profile' }}
+      />
+      <Stack.Screen
         name="new-conversation"
         options={{ headerBackTitle: 'Back', title: 'New conversation' }}
       />

@@ -4,11 +4,11 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
-- Features 03, 04, 06, 09, 11, 13, 14, 15, and 16 implemented - pending remaining manual real-device verification; Features 05, 07, 08, 10, and 12 complete
+- Features 03, 04, 06, 09, 11, 13, 14, 15, 16, and 17 implemented - pending remaining manual real-device verification; Features 05, 07, 08, 10, and 12 complete
 
 ## Current Goal
 
-- Complete Feature 16's ten-case real-device/browser verification checklist
+- Complete Feature 17's ten-case two-device verification checklist, including ImageKit dashboard compression/file-type checks and the offline text-message regression test
 
 ## Completed
 
@@ -249,6 +249,24 @@ Update this file after every meaningful implementation change.
   - CodeRabbit follow-up: relative-day calculation now compares calendar dates instead of assuming every local day lasts 24 hours, so a message from yesterday remains labelled `Yesterday` across daylight-saving transitions.
   - CodeRabbit follow-up: web theme resolution remains light for the server render and first client render, then follows the actual system scheme after hydration. This restores static-render/hydration consistency while preserving live Light/Dark/System behavior.
 
+- Feature 17: Media Sharing & Profile Photos (ImageKit) implemented:
+  - Added the protected `GET /api/media/upload-auth` endpoint. It creates a fresh UUID token, a five-minute expiry, and the lowercase HMAC-SHA1 signature required by ImageKit without exposing the private key or touching image bytes.
+  - Added the protected `PATCH /api/users/me` endpoint. It accepts only a non-empty URL belonging to the configured ImageKit endpoint, updates only the authenticated user's `avatarUrl`, and returns the exact public user shape used by the mobile auth context.
+  - Centralized backend ImageKit configuration, signing, and URL validation in `backend/lib/media.ts`. URL acceptance compares parsed protocol, host, and endpoint path boundaries rather than trusting a loose string prefix, preventing lookalike-host and path-prefix bypasses.
+  - Extended authentication responses, user search, conversation participants, message history, and conversation `lastMessage` contracts with the existing nullable `avatarUrl`/`mediaUrl` fields. No Prisma model, migration, or database schema change was made.
+  - Extended the existing Socket.IO `message:send` schema additively: content may be null only when a valid media URL is present, empty messages and foreign URLs are rejected, and `mediaUrl` flows through the same authorization, idempotent transaction, persist-before-broadcast, acknowledgement, delivery, and read-status path as text.
+  - Added `IMAGEKIT_URL_ENDPOINT` to socket-server's fail-fast environment contract so media validation is enforced independently by the process that accepts message sends. The private ImageKit key remains backend-only and is never included in mobile or socket configuration.
+  - Installed the Expo SDK 54-compatible `expo-image-picker` 17.0.11 and `expo-image-manipulator` 14.0.8 packages, and registered the image-picker permission plugin without requesting microphone access.
+  - Added one reusable mobile media helper for both profile and chat flows. It requests gallery permission, selects images only, resizes the longest dimension to at most 1600 pixels, saves as JPEG at 0.7 quality, requests fresh upload credentials, uploads directly to ImageKit with `FormData`, and verifies the returned URL before use.
+  - Added an authenticated profile screen opened by tapping the inbox's own avatar. It displays the cached user, supports pick/compress/upload/save with progress and clear errors, preserves the previous avatar after failures, and updates `AuthContext` plus its cached user immediately after success.
+  - Upgraded the shared conversation avatar to render remote profile photos with an image-error fallback to the existing deterministic initials/color design. Conversation rows and New conversation search results now receive server-provided avatars.
+  - Added the composer attachment action and an online-only image-send path. Upload and send failures remain retry-capable with the uploaded URL and stable client message ID retained, while offline image attempts are blocked with a clear explanation and the durable text-only queue remains unchanged.
+  - Added media bubble rendering with a loading placeholder, optional caption, the existing sent/read ticks, and a lightweight full-screen dismissible viewer. Cached/history/live messages all retain URL-only media references; no image bytes enter REST responses, socket payloads, or AsyncStorage.
+  - Chose to compute the media-only inbox preview (`📷 Photo`) on mobile so the backend continues returning the underlying nullable content and media URL without inventing persisted text. Live and REST/cache inbox paths use the same preview rule.
+  - Reviewed the exact Expo SDK 54 ImagePicker/ImageManipulator documentation and ImageKit Upload V1 authentication contract before implementation. Static socket schema checks accept media-only and text-only sends while rejecting empty and foreign-URL sends; backend and socket production builds, mobile TypeScript/lint, Expo SDK dependency/config checks, repository whitespace checks, and full changed-file Prettier checks pass.
+  - Web follow-up: added `PATCH` to the API CORS allow-list. Browsers can now complete the authenticated `PATCH /api/users/me` request after a successful direct ImageKit upload; native Expo Go was unaffected because native fetch is not governed by browser CORS.
+  - Web follow-up: changed ImageManipulator resize calls to omit the aspect-ratio dimension instead of explicitly passing `null`. Expo SDK 54's web resize implementation treated `null` as a supplied zero dimension and failed in Canvas `createImageData`; omitting it preserves aspect ratio on every platform and avoids the zero-height/width failure.
+
 - Inbox orphan-conversation resilience repair:
   - Diagnosed the Expo Go `GET /api/conversations` 500 as legacy database data created when users were manually deleted from Neon: the remaining participant can still see a direct conversation whose other participant row was cascade-deleted.
   - The inbox route now filters out conversations with no other participant before mapping them to the mobile contract. Valid conversations continue unchanged, while a malformed legacy row can no longer make the complete inbox fail with a 500.
@@ -273,11 +291,12 @@ Update this file after every meaningful implementation change.
 - Feature 14 manual two-device verification: validate instant online clock-to-tick reconciliation, airplane-mode queueing, force-close/cold-start persistence, automatic recovery, strict same-conversation ordering, independent multi-conversation flushing, and light/dark clock presentation. Server idempotency is live-verified; the physical-device queue and restart scenarios remain pending.
 - Feature 15 manual two-device verification: validate cached chat and inbox rendering in airplane mode (including force-close/reopen), switching among multiple previously opened chats, the expected error for a never-opened chat, reconnect merge/de-duplication, genuine HTTP-error handling, and light/dark offline-notice presentation. The implementation and static checks are complete; these physical-device/browser scenarios remain pending.
 - Feature 16 manual real-device/browser verification: run all ten specification checks for persisted Light/Dark/System behavior, cross-screen theme consistency, two-account live row movement and unread clearing, empty previews, deterministic avatars, timestamp cases, and inbox appearance. The implementation and static checks are complete; this physical-device/browser validation remains pending.
+- Feature 17 manual two-device verification: run all ten specification checks for avatar propagation, image-only and captioned messages, the full-screen viewer, offline image blocking, unchanged offline text queueing, media-only inbox previews, rejection of foreign avatar URLs, actual ImageKit uploads/compression, and light/dark/error states. Also confirm the ImageKit dashboard's image-only restriction and optional file-size limit are configured. The implementation and static checks are complete; external-service and physical-device verification remain pending.
 - Optional Neon data hygiene: delete the legacy conversations with fewer than two participants through the Neon SQL console once a browser session or working direct maintenance connection is available. The app no longer depends on this cleanup because the inbox route excludes them.
 
 ## Next Up
 
-- Decide whether to schedule an optional screen-by-screen visual polish pass (chat bubbles, auth, and New conversation) or proceed directly to the next product feature such as Feature 17 media.
+- Decide Feature 18's authentication direction: keep the current password login or design Email OTP, accounting for provider cost, deliverability, abuse controls, and the desired mobile sign-in experience.
 
 ## Open Questions
 

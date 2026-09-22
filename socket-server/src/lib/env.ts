@@ -20,8 +20,20 @@ function readDatabaseUrl(value: string | undefined): string {
   return value;
 }
 
+function readImageKitUrlEndpoint(value: string | undefined): string {
+  if (!value?.trim()) throw new Error("IMAGEKIT_URL_ENDPOINT must be set.");
+  try {
+    return new URL(value.trim()).toString().replace(/\/+$/, "");
+  } catch {
+    throw new Error("IMAGEKIT_URL_ENDPOINT must be a valid URL.");
+  }
+}
+
 export const env = {
   databaseUrl: readDatabaseUrl(process.env.DATABASE_URL),
+  imageKitUrlEndpoint: readImageKitUrlEndpoint(
+    process.env.IMAGEKIT_URL_ENDPOINT,
+  ),
   jwtAccessSecret: readAccessSecret(process.env.JWT_ACCESS_SECRET),
   port: readPort(process.env.PORT),
 };

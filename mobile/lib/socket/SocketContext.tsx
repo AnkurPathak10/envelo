@@ -24,13 +24,12 @@ import {
 
 export interface MessageSendPayload {
   conversationId: string;
-  content: string;
+  content: string | null;
+  mediaUrl?: string;
   clientMessageId?: string;
 }
 
-export type SocketTextMessage = Omit<TextMessage, 'status'> & {
-  content: string;
-};
+export type SocketTextMessage = Omit<TextMessage, 'status'>;
 
 export type MessageSendAcknowledgement =
   { ok: true; message: SocketTextMessage } | { ok: false; error: string };

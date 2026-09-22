@@ -40,6 +40,11 @@ function isConversationListItem(value: unknown): value is ConversationListItem {
     typeof participant.id !== 'string' ||
     typeof participant.displayName !== 'string' ||
     typeof participant.email !== 'string' ||
+    !(
+      participant.avatarUrl === undefined ||
+      participant.avatarUrl === null ||
+      typeof participant.avatarUrl === 'string'
+    ) ||
     typeof candidate.unreadCount !== 'number' ||
     !Number.isInteger(candidate.unreadCount) ||
     candidate.unreadCount < 0
@@ -53,6 +58,9 @@ function isConversationListItem(value: unknown): value is ConversationListItem {
     typeof lastMessage.id === 'string' &&
     typeof lastMessage.senderId === 'string' &&
     (typeof lastMessage.content === 'string' || lastMessage.content === null) &&
+    (lastMessage.mediaUrl === undefined ||
+      lastMessage.mediaUrl === null ||
+      typeof lastMessage.mediaUrl === 'string') &&
     isDateString(lastMessage.createdAt) &&
     (lastMessage.status === null || isMessageStatus(lastMessage.status))
   );

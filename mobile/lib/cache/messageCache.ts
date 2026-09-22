@@ -66,6 +66,9 @@ function isTextMessage(value: unknown): value is TextMessage {
     typeof candidate.conversationId === 'string' &&
     typeof candidate.senderId === 'string' &&
     (typeof candidate.content === 'string' || candidate.content === null) &&
+    (candidate.mediaUrl === undefined ||
+      candidate.mediaUrl === null ||
+      typeof candidate.mediaUrl === 'string') &&
     isDateString(candidate.createdAt) &&
     (candidate.status === null || isMessageStatus(candidate.status)) &&
     (candidate.clientMessageId === undefined ||

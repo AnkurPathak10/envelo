@@ -8,6 +8,7 @@ export function messageHistorySelect(currentUserId: string) {
     conversationId: true,
     senderId: true,
     content: true,
+    mediaUrl: true,
     createdAt: true,
     statuses: {
       where: { userId: { not: currentUserId } },
@@ -26,6 +27,7 @@ export interface MessageHistoryItem {
   conversationId: string;
   senderId: string;
   content: string | null;
+  mediaUrl: string | null;
   createdAt: string;
   status: MessageStatusType | null;
 }
@@ -38,6 +40,7 @@ export function toMessageHistoryItem(
     conversationId: message.conversationId,
     senderId: message.senderId,
     content: message.content,
+    mediaUrl: message.mediaUrl,
     createdAt: message.createdAt.toISOString(),
     status: message.statuses[0]?.status ?? null,
   };

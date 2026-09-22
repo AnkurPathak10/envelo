@@ -2,17 +2,37 @@ import type { Prisma } from "../generated/prisma";
 import type { Server, Socket } from "socket.io";
 import { z } from "zod";
 
-export const messageSendSchema = z.object({
-  conversationId: z.string().trim().min(1),
-  content: z.string().trim().min(1).max(2000),
-  clientMessageId: z.string().trim().min(1).max(100).optional(),
-});
+import { isImageKitUrl } from "./media";
+
+export const messageSendSchema = z
+  .object({
+    conversationId: z.string().trim().min(1),
+    content: z.string().trim().min(1).max(2000).nullable().optional(),
+    mediaUrl: z
+      .string()
+      .trim()
+      .url()
+      .refine(isImageKitUrl, "Invalid media URL")
+      .optional(),
+    clientMessageId: z.string().trim().min(1).max(100).optional(),
+  })
+  .superRefine((message, context) => {
+    if (!message.content && !message.mediaUrl) {
+      context.addIssue({
+        code: "custom",
+        message: "Message content or media is required",
+        path: ["content"],
+      });
+    }
+  })
+  .transform((message) => ({ ...message, content: message.content ?? null }));
 
 export interface TextMessagePayload {
   id: string;
   conversationId: string;
   senderId: string;
-  content: string;
+  content: string | null;
+  mediaUrl: string | null;
   createdAt: string;
   clientMessageId: string | null;
 }
@@ -73,6 +93,7 @@ export const textMessageSelect = {
   conversationId: true,
   senderId: true,
   content: true,
+  mediaUrl: true,
   createdAt: true,
   clientMessageId: true,
 } satisfies Prisma.MessageSelect;
@@ -84,8 +105,8 @@ type SelectedTextMessage = Prisma.MessageGetPayload<{
 export function toTextMessagePayload(
   message: SelectedTextMessage,
 ): TextMessagePayload {
-  if (message.content === null) {
-    throw new Error("Persisted text message has no content.");
+  if (message.content === null && message.mediaUrl === null) {
+    throw new Error("Persisted message has neither content nor media.");
   }
 
   return {
@@ -93,6 +114,7 @@ export function toTextMessagePayload(
     conversationId: message.conversationId,
     senderId: message.senderId,
     content: message.content,
+    mediaUrl: message.mediaUrl,
     createdAt: message.createdAt.toISOString(),
     clientMessageId: message.clientMessageId,
   };

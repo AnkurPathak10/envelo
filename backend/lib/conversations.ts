@@ -11,6 +11,7 @@ export const directConversationSelect = {
           id: true,
           displayName: true,
           email: true,
+          avatarUrl: true,
         },
       },
     },
@@ -33,6 +34,7 @@ export function conversationListSelect(currentUserId: string) {
             id: true,
             displayName: true,
             email: true,
+            avatarUrl: true,
           },
         },
       },
@@ -44,6 +46,7 @@ export function conversationListSelect(currentUserId: string) {
         id: true,
         senderId: true,
         content: true,
+        mediaUrl: true,
         createdAt: true,
         statuses: {
           where: { userId: { not: currentUserId } },
@@ -119,6 +122,7 @@ export function toConversationListItem(
           id: lastMessage.id,
           senderId: lastMessage.senderId,
           content: lastMessage.content,
+          mediaUrl: lastMessage.mediaUrl,
           createdAt: lastMessage.createdAt.toISOString(),
           status: lastMessage.statuses[0]?.status ?? null,
         }

@@ -10,7 +10,10 @@ function isApiUser(value: unknown): value is ApiUser {
   return (
     typeof candidate.id === 'string' &&
     typeof candidate.email === 'string' &&
-    typeof candidate.displayName === 'string'
+    typeof candidate.displayName === 'string' &&
+    (candidate.avatarUrl === undefined ||
+      candidate.avatarUrl === null ||
+      typeof candidate.avatarUrl === 'string')
   );
 }
 
@@ -19,7 +22,9 @@ export async function getCachedUser(): Promise<ApiUser | null> {
   if (!stored) return null;
   try {
     const parsed: unknown = JSON.parse(stored);
-    return isApiUser(parsed) ? parsed : null;
+    return isApiUser(parsed)
+      ? { ...parsed, avatarUrl: parsed.avatarUrl ?? null }
+      : null;
   } catch {
     return null;
   }

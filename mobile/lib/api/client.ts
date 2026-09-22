@@ -4,6 +4,7 @@ export interface ApiUser {
   id: string;
   email: string;
   displayName: string;
+  avatarUrl: string | null;
 }
 interface RefreshResponse {
   accessToken: string;

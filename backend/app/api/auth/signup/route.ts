@@ -58,6 +58,7 @@ export async function POST(request: NextRequest) {
       id: true,
       email: true,
       displayName: true,
+      avatarUrl: true,
     },
   });
 

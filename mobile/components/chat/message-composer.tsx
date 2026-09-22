@@ -1,3 +1,4 @@
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { colors, radius } from '@/constants/theme';
@@ -6,7 +7,9 @@ import { useAppColorScheme } from '@/lib/theme/useAppColorScheme';
 
 interface MessageComposerProps {
   connectionState: SocketConnectionState;
+  isMediaBusy: boolean;
   isSending: boolean;
+  onAttach: () => void;
   onChangeText: (value: string) => void;
   onRetryConnection: () => void;
   onSend: () => void;
@@ -29,7 +32,9 @@ function getConnectionNotice(
 
 export function MessageComposer({
   connectionState,
+  isMediaBusy,
   isSending,
+  onAttach,
   onChangeText,
   onRetryConnection,
   onSend,
@@ -39,7 +44,7 @@ export function MessageComposer({
   const scheme = useAppColorScheme();
   const c = colors[scheme];
   const styles = createStyles(c);
-  const isSendDisabled = isSending || !value.trim();
+  const isSendDisabled = isSending || isMediaBusy || !value.trim();
   const connectionNotice = getConnectionNotice(connectionState);
 
   return (
@@ -61,6 +66,23 @@ export function MessageComposer({
       ) : null}
       {sendError ? <Text style={styles.errorText}>{sendError}</Text> : null}
       <View style={styles.composerRow}>
+        <Pressable
+          accessibilityLabel="Attach photo"
+          accessibilityRole="button"
+          disabled={isMediaBusy}
+          onPress={onAttach}
+          style={({ pressed }) => [
+            styles.attachButton,
+            isMediaBusy && styles.buttonDisabled,
+            pressed && !isMediaBusy && styles.attachButtonPressed,
+          ]}
+        >
+          <MaterialIcons
+            color={c.accentPrimary}
+            name={isMediaBusy ? 'hourglass-top' : 'add-photo-alternate'}
+            size={24}
+          />
+        </Pressable>
         <TextInput
           accessibilityLabel="Message"
           maxLength={2000}
@@ -92,6 +114,15 @@ export function MessageComposer({
 
 const createStyles = (c: typeof colors.light) =>
   StyleSheet.create({
+    attachButton: {
+      alignItems: 'center',
+      borderRadius: radius.sm,
+      height: 44,
+      justifyContent: 'center',
+      width: 44,
+    },
+    attachButtonPressed: { backgroundColor: c.bgSurface },
+    buttonDisabled: { opacity: 0.45 },
     composerRow: { alignItems: 'flex-end', flexDirection: 'row', gap: 10 },
     connectionNotice: {
       color: c.textMuted,

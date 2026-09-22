@@ -55,6 +55,7 @@ export async function POST(request: NextRequest) {
       id: user.id,
       email: user.email,
       displayName: user.displayName,
+      avatarUrl: user.avatarUrl,
     },
   });
 }

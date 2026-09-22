@@ -1,4 +1,5 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { Image, StyleSheet, Text, View } from 'react-native';
 
 import { colors, spacing } from '@/constants/theme';
 
@@ -13,7 +14,9 @@ const avatarColors = [
 ] as const;
 
 type ConversationAvatarProps = {
+  avatarUrl?: string | null;
   name: string;
+  size?: number;
   userId: string;
 };
 
@@ -32,14 +35,44 @@ function getAvatarColor(userId: string): string {
   return avatarColors[hash % avatarColors.length];
 }
 
-export function ConversationAvatar({ name, userId }: ConversationAvatarProps) {
+export function ConversationAvatar({
+  avatarUrl,
+  name,
+  size = spacing.xl + spacing.md,
+  userId,
+}: ConversationAvatarProps) {
+  const [imageFailed, setImageFailed] = useState(false);
+
+  useEffect(() => setImageFailed(false), [avatarUrl]);
+
   return (
     <View
       accessibilityElementsHidden
       importantForAccessibility="no-hide-descendants"
-      style={[styles.avatar, { backgroundColor: getAvatarColor(userId) }]}
+      style={[
+        styles.avatar,
+        {
+          backgroundColor: getAvatarColor(userId),
+          borderRadius: size / 2,
+          height: size,
+          width: size,
+        },
+      ]}
     >
-      <Text style={styles.initials}>{getInitials(name)}</Text>
+      {avatarUrl && !imageFailed ? (
+        <Image
+          onError={() => setImageFailed(true)}
+          resizeMode="cover"
+          source={{ uri: avatarUrl }}
+          style={styles.image}
+        />
+      ) : (
+        <Text
+          style={[styles.initials, { fontSize: Math.max(16, size * 0.35) }]}
+        >
+          {getInitials(name)}
+        </Text>
+      )}
     </View>
   );
 }
@@ -47,14 +80,12 @@ export function ConversationAvatar({ name, userId }: ConversationAvatarProps) {
 const styles = StyleSheet.create({
   avatar: {
     alignItems: 'center',
-    borderRadius: spacing.lg,
-    height: spacing.xl + spacing.md,
     justifyContent: 'center',
-    width: spacing.xl + spacing.md,
+    overflow: 'hidden',
   },
+  image: { height: '100%', width: '100%' },
   initials: {
     color: colors.light.onAccent,
-    fontSize: 17,
     fontWeight: '700',
   },
 });

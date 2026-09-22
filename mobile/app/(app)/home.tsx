@@ -1,7 +1,7 @@
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useFocusEffect, useIsFocused } from '@react-navigation/native';
-import { router } from 'expo-router';
+import { router, type Href } from 'expo-router';
 import {
   ActivityIndicator,
   AppState,
@@ -15,6 +15,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ConversationRow } from '@/components/conversations/conversation-row';
+import { ConversationAvatar } from '@/components/conversations/conversation-avatar';
 import { EmptyConversationList } from '@/components/conversations/empty-conversation-list';
 import { ThemeToggle } from '@/components/theme/theme-toggle';
 import { colors, radius, spacing } from '@/constants/theme';
@@ -154,6 +155,10 @@ export default function HomeScreen() {
     router.push('/(app)/new-conversation');
   }, []);
 
+  const openProfile = useCallback(() => {
+    router.push('/(app)/profile' as Href);
+  }, []);
+
   const openConversation = useCallback(
     (conversation: ConversationListItem) => {
       if (conversation.unreadCount > 0) {
@@ -211,6 +216,7 @@ export default function HomeScreen() {
               id: message.id,
               senderId: message.senderId,
               content: message.content,
+              mediaUrl: message.mediaUrl,
               createdAt: message.createdAt,
               status: isIncoming ? null : 'SENT',
             },
@@ -358,7 +364,24 @@ export default function HomeScreen() {
     <SafeAreaView edges={['top']} style={styles.safeArea}>
       <View style={styles.header}>
         <View style={styles.headerTopRow}>
-          <Text style={styles.title}>Envelo</Text>
+          <View style={styles.brandRow}>
+            {user ? (
+              <Pressable
+                accessibilityLabel="Open your profile"
+                accessibilityRole="button"
+                onPress={openProfile}
+                style={({ pressed }) => pressed && styles.headerButtonPressed}
+              >
+                <ConversationAvatar
+                  avatarUrl={user.avatarUrl}
+                  name={user.displayName}
+                  size={44}
+                  userId={user.id}
+                />
+              </Pressable>
+            ) : null}
+            <Text style={styles.title}>Envelo</Text>
+          </View>
           <View style={styles.headerActions}>
             <Pressable
               accessibilityLabel="New conversation"
@@ -446,6 +469,7 @@ const createStyles = (c: typeof colors.light) =>
       justifyContent: 'center',
       padding: spacing.xl,
     },
+    brandRow: { alignItems: 'center', flexDirection: 'row', gap: spacing.sm },
     emptyList: { flexGrow: 1 },
     errorText: {
       color: c.error,

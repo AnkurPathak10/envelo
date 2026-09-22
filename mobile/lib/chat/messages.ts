@@ -4,14 +4,14 @@ import type { PendingMessage } from '@/lib/offline/pendingMessagesStore';
 export type LocalMessageStatus = MessageStatus | 'PENDING';
 
 export interface RenderableTextMessage extends Omit<TextMessage, 'status'> {
-  content: string;
+  content: string | null;
   status: LocalMessageStatus | null;
 }
 
 function isRenderableTextMessage(
   message: TextMessage | RenderableTextMessage
 ): message is RenderableTextMessage {
-  return message.content !== null;
+  return message.content !== null || message.mediaUrl !== null;
 }
 
 function compareMessages(
@@ -94,6 +94,7 @@ export function toPendingTextMessage(
     conversationId: message.conversationId,
     senderId: message.senderId,
     content: message.content,
+    mediaUrl: null,
     createdAt: message.createdAt,
     status: 'PENDING',
   };

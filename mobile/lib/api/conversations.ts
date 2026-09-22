@@ -4,6 +4,7 @@ export interface ConversationParticipant {
   id: string;
   displayName: string;
   email: string;
+  avatarUrl: string | null;
 }
 
 export interface ConversationListItem {
@@ -15,6 +16,7 @@ export interface ConversationListItem {
     id: string;
     senderId: string;
     content: string | null;
+    mediaUrl: string | null;
     createdAt: string;
     status: MessageStatus | null;
   } | null;
@@ -28,6 +30,7 @@ export interface TextMessage {
   conversationId: string;
   senderId: string;
   content: string | null;
+  mediaUrl: string | null;
   createdAt: string;
   status: MessageStatus | null;
   clientMessageId?: string | null;

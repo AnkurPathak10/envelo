@@ -36,6 +36,8 @@ import {
   toPendingTextMessage,
   updateMessageStatus,
 } from '@/lib/chat/messages';
+import { pickCompressedImage, uploadImage } from '@/lib/media/upload';
+import { createClientMessageId } from '@/lib/offline/pendingMessagesStore';
 import { useSocket, type SocketTextMessage } from '@/lib/socket/SocketContext';
 
 interface ChatScreenProps {
@@ -82,6 +84,7 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
     pendingMessages,
     queueMessage,
     retryConnection,
+    sendMessage,
     subscribeToNewMessages,
     subscribeToMessageStatuses,
   } = useSocket();
@@ -95,6 +98,11 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
   const [earlierError, setEarlierError] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
   const [isSending, setIsSending] = useState(false);
+  const [isMediaBusy, setIsMediaBusy] = useState(false);
+  const [mediaRetry, setMediaRetry] = useState<{
+    clientMessageId: string;
+    mediaUrl: string;
+  } | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
   const [reloadVersion, setReloadVersion] = useState(0);
   const [isAppViewVisible, setIsAppViewVisible] = useState(
@@ -443,6 +451,60 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
     user?.id,
   ]);
 
+  const attachAndSendPhoto = useCallback(async () => {
+    if (isMediaBusy || isSending) return;
+    if (connectionState !== 'connected') {
+      setSendError(
+        "Can't send photos while offline — try again once you're connected."
+      );
+      return;
+    }
+
+    setIsMediaBusy(true);
+    setSendError(null);
+    const draftAtSend = draft;
+
+    try {
+      let media = mediaRetry;
+      if (!media) {
+        const image = await pickCompressedImage();
+        if (!image) return;
+        const mediaUrl = await uploadImage(image);
+        media = { mediaUrl, clientMessageId: createClientMessageId() };
+        setMediaRetry(media);
+      }
+
+      const acknowledgement = await sendMessage({
+        conversationId,
+        content: draftAtSend.trim() || null,
+        mediaUrl: media.mediaUrl,
+        clientMessageId: media.clientMessageId,
+      });
+      if (!acknowledgement.ok) throw new Error(acknowledgement.error);
+
+      requestScrollToEnd(true);
+      setMediaRetry(null);
+      setDraft((current) => (current === draftAtSend ? '' : current));
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : 'Unable to send this photo. Please try again.';
+      setSendError(`${message} Tap the photo button to retry.`);
+    } finally {
+      setIsMediaBusy(false);
+    }
+  }, [
+    connectionState,
+    conversationId,
+    draft,
+    isMediaBusy,
+    isSending,
+    mediaRetry,
+    requestScrollToEnd,
+    sendMessage,
+  ]);
+
   const flushPendingScroll = useCallback(() => {
     const requestedScroll = pendingScroll.current;
     if (!requestedScroll || isScrollFlushScheduled.current) return;
@@ -578,7 +640,9 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
         <SafeAreaView edges={['bottom']} style={styles.composerSafeArea}>
           <MessageComposer
             connectionState={connectionState}
+            isMediaBusy={isMediaBusy || isSending}
             isSending={isSending}
+            onAttach={() => void attachAndSendPhoto()}
             onChangeText={(value) => {
               setDraft(value);
               if (sendError) setSendError(null);

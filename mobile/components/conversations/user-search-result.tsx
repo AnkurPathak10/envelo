@@ -6,6 +6,7 @@ import {
   View,
 } from 'react-native';
 
+import { ConversationAvatar } from '@/components/conversations/conversation-avatar';
 import { colors } from '@/constants/theme';
 import type { ConversationParticipant } from '@/lib/api/conversations';
 import { useAppColorScheme } from '@/lib/theme/useAppColorScheme';
@@ -38,6 +39,12 @@ export function UserSearchResult({
         isDisabled && styles.disabled,
       ]}
     >
+      <ConversationAvatar
+        avatarUrl={user.avatarUrl}
+        name={user.displayName}
+        size={44}
+        userId={user.id}
+      />
       <View style={styles.details}>
         <Text style={styles.name}>{user.displayName}</Text>
         <Text style={styles.email}>{user.email}</Text>
@@ -54,6 +61,7 @@ const createStyles = (c: typeof colors.light) =>
       borderBottomColor: c.border,
       borderBottomWidth: StyleSheet.hairlineWidth,
       flexDirection: 'row',
+      gap: 12,
       paddingHorizontal: 20,
       paddingVertical: 16,
     },

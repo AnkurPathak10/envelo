@@ -33,6 +33,7 @@ interface AuthContextValue {
   signUp: (input: SignUpInput) => Promise<void>;
   signOut: () => Promise<void>;
   refreshAccessToken: () => Promise<string | null>;
+  updateUser: (user: ApiUser) => Promise<void>;
 }
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 export function AuthProvider({ children }: PropsWithChildren) {
@@ -127,6 +128,17 @@ export function AuthProvider({ children }: PropsWithChildren) {
       }
     });
   }, [serializeAuthMutation]);
+  const updateUser = useCallback(
+    async (updatedUser: ApiUser): Promise<void> => {
+      const updateRevision = authRevision.current;
+      await serializeAuthMutation(async () => {
+        if (updateRevision !== authRevision.current) return;
+        await saveCachedUser(updatedUser);
+        if (updateRevision === authRevision.current) setUser(updatedUser);
+      });
+    },
+    [serializeAuthMutation]
+  );
   useEffect(() => {
     setSessionExpiredHandler(() => {
       authRevision.current += 1;
@@ -186,6 +198,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
       signUp: authenticateWithSignUp,
       signOut,
       refreshAccessToken,
+      updateUser,
     }),
     [
       accessToken,
@@ -194,6 +207,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
       isLoading,
       refreshAccessToken,
       signOut,
+      updateUser,
       user,
     ]
   );

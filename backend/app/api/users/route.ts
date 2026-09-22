@@ -40,7 +40,7 @@ export async function GET(request: NextRequest) {
       ],
     },
     orderBy: { displayName: "asc" },
-    select: { id: true, displayName: true, email: true },
+    select: { id: true, displayName: true, email: true, avatarUrl: true },
     take: 20,
   });
 

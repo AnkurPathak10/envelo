@@ -84,7 +84,7 @@ export function registerMessageHandlers(
             senderId,
             content: parsed.data.content,
             clientMessageId: clientMessageId ?? null,
-            mediaUrl: null,
+            mediaUrl: parsed.data.mediaUrl ?? null,
           },
           select: textMessageSelect,
         });

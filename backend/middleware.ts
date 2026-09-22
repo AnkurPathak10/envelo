@@ -13,7 +13,7 @@ function allowedOrigins(): string[] {
 function corsHeaders(origin: string | null): Headers {
   const headers = new Headers({
     "Access-Control-Allow-Headers": "Authorization, Content-Type",
-    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Methods": "GET, POST, PATCH, OPTIONS",
     "Access-Control-Max-Age": "86400",
     Vary: "Origin",
   });

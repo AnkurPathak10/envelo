@@ -36,6 +36,7 @@ export function ConversationRow({
       ]}
     >
       <ConversationAvatar
+        avatarUrl={conversation.participant.avatarUrl}
         name={conversation.participant.displayName}
         userId={conversation.participant.id}
       />
@@ -55,7 +56,8 @@ export function ConversationRow({
           ) : null}
           <Text numberOfLines={1} style={styles.preview}>
             {lastMessage
-              ? (lastMessage.content ?? 'Message')
+              ? (lastMessage.content ??
+                (lastMessage.mediaUrl ? '📷 Photo' : 'Message'))
               : 'No messages yet'}
           </Text>
         </View>
