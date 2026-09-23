@@ -85,6 +85,18 @@ export const messagingAvatarColors = [
   messagingPalette.platinum,
 ] as const;
 
+export const authColors = {
+  brandDeep: '#480200',
+  brandPrimary: '#D39A86',
+  brandSoft: '#E3C4C9',
+  panel: '#FEFFFE',
+  input: '#F1F0F1',
+  textPrimary: '#11181C',
+  textMuted: '#5B6572',
+  textOnBrand: '#FEFFFE',
+  error: '#D93036',
+} as const;
+
 export const radius = {
   sm: 8,
   md: 16,

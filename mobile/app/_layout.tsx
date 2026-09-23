@@ -7,6 +7,10 @@ import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
+import {
+  ShadowsIntoLight_400Regular,
+  useFonts,
+} from '@expo-google-fonts/shadows-into-light';
 import 'react-native-reanimated';
 
 import { colors } from '@/constants/theme';
@@ -41,6 +45,12 @@ function RootNavigator() {
 }
 
 export default function RootLayout() {
+  const [fontsLoaded, fontError] = useFonts({
+    ShadowsIntoLight_400Regular,
+  });
+
+  if (!fontsLoaded && !fontError) return null;
+
   return (
     <KeyboardProvider enabled={false} preload={false}>
       <AppThemeProvider>

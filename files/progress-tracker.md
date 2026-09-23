@@ -13,6 +13,12 @@ Update this file after every meaningful implementation change.
 
 ## UI Upgrades
 
+- Authentication UI refresh:
+  - Rebuilt login and signup as one fixed split design in every system theme: a deep brand-rose (`#8F5148`) upper section and rounded light form panel, with decorative tonal shapes and Envelo branding.
+  - Kept the existing email/password and display-name fields, validation, links, submission states, and authentication calls. No social-login or reference-only controls were added.
+  - Primary buttons use the exact requested `#D39A86`; inputs use the existing light messaging neutrals. Both screens scroll with the keyboard and no longer read from the Light/Dark/System preference.
+  - Browser visual checks passed for both routes; mobile TypeScript and lint checks are recorded after implementation.
+
 - Feature 18: Light Theme Colors for Chat and Conversations — implementation finished; real-device visual acceptance pending.
   - Added scoped light-mode messaging tokens using the exact supplied palette: Rosy Taupe actions (`#D39A86`), Cotton Rose badges/borders/selected theme toggle (`#E3C4C9`), Soft Blush outgoing bubbles (`#FEE3E2`), Platinum incoming bubbles/input (`#F1F0F1`), and White chat/inbox/header/composer backgrounds (`#FEFFFE`).
   - Applied these roles to text, pending, and captioned media bubbles, composer controls, conversation rows, empty/error/loading/offline states, and the conversation header. Filled light controls and badges use dark foregrounds; timestamps and status ticks remain legible.
