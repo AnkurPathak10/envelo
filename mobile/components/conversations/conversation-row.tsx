@@ -77,8 +77,6 @@ const createStyles = (c: typeof colors.light) =>
   StyleSheet.create({
     container: {
       alignItems: 'center',
-      borderBottomColor: c.border,
-      borderBottomWidth: StyleSheet.hairlineWidth,
       flexDirection: 'row',
       gap: spacing.md,
       minHeight: spacing.xl * 2 + spacing.sm,

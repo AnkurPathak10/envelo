@@ -44,8 +44,29 @@
       [
         "expo-image-picker",
         {
+          "cameraPermission": "Envelo needs camera access so you can take and share photos in conversations.",
           "photosPermission": "Envelo needs access to your photos so you can set a profile picture and share images.",
           "microphonePermission": false
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Envelo needs access to your recent photos so you can preview and attach them in conversations.",
+          "savePhotosPermission": "Envelo can save photos to your library when you choose to do so.",
+          "granularPermissions": ["photo"]
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Envelo uses your current location only when you choose to share it in a conversation."
+        }
+      ],
+      [
+        "expo-contacts",
+        {
+          "contactsPermission": "Envelo needs access to contacts only when you choose a contact to share."
         }
       ]
     ],

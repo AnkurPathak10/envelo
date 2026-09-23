@@ -1,11 +1,14 @@
 import { router } from 'expo-router';
-import { useIsFocused } from '@react-navigation/native';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import * as Contacts from 'expo-contacts';
+import * as Location from 'expo-location';
+import { useFocusEffect, useIsFocused } from '@react-navigation/native';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   AppState,
   type AppStateStatus,
   FlatList,
+  InteractionManager,
   Platform,
   Pressable,
   StyleSheet,
@@ -13,6 +16,7 @@ import {
   View,
 } from 'react-native';
 import {
+  KeyboardEvents,
   KeyboardStickyView,
   useKeyboardController,
 } from 'react-native-keyboard-controller';
@@ -37,7 +41,13 @@ import {
   updateMessageStatus,
 } from '@/lib/chat/messages';
 import { getPendingMediaPreviewUri } from '@/lib/media/pendingMediaStorage';
-import { pickCompressedImage, type PreparedImage } from '@/lib/media/upload';
+import {
+  captureCompressedImage,
+  pickCompressedImage,
+  prepareImageSource,
+  type ImageSource,
+  type PreparedImage,
+} from '@/lib/media/upload';
 import { isPendingMediaMessage } from '@/lib/offline/pendingMessagesStore';
 import { useSocket, type SocketTextMessage } from '@/lib/socket/SocketContext';
 
@@ -99,6 +109,9 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
   const [draft, setDraft] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [isMediaBusy, setIsMediaBusy] = useState(false);
+  const [composerHeight, setComposerHeight] = useState(84);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [isInitialPositionReady, setIsInitialPositionReady] = useState(false);
   const [selectedImage, setSelectedImage] = useState<{
     conversationId: string;
     image: PreparedImage;
@@ -114,9 +127,11 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
     isCurrentAppViewVisible
   );
   const listRef = useRef<FlatList<RenderableTextMessage>>(null);
+  const hasMeasuredComposerForConversation = useRef(false);
   const pendingScroll = useRef<{
     animated: boolean;
     remainingFrames: number;
+    revealAfterScroll: boolean;
   } | null>(null);
   const isScrollFlushScheduled = useRef(false);
   const observedConnectionEpoch = useRef(connectionEpoch);
@@ -128,6 +143,12 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
   const styles = createStyles(c);
 
   useEffect(() => {
+    pendingScroll.current = null;
+    isScrollFlushScheduled.current = false;
+    hasMeasuredComposerForConversation.current = false;
+    setComposerHeight(84);
+    setKeyboardHeight(0);
+    setIsInitialPositionReady(false);
     setSelectedImage((current) =>
       current?.conversationId === conversationId ? current : null
     );
@@ -164,22 +185,59 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
     };
   }, [pendingMessages]);
 
-  const requestScrollToEnd = useCallback((animated: boolean): void => {
-    const currentRequest = pendingScroll.current;
-    if (currentRequest) {
-      currentRequest.animated = animated;
-      currentRequest.remainingFrames = animated ? 1 : 4;
-      return;
-    }
+  const requestScrollToEnd = useCallback(
+    (animated: boolean, revealAfterScroll = false): void => {
+      const currentRequest = pendingScroll.current;
+      if (currentRequest) {
+        currentRequest.animated = animated;
+        currentRequest.remainingFrames = animated ? 1 : 12;
+        currentRequest.revealAfterScroll ||= revealAfterScroll;
+        return;
+      }
 
-    pendingScroll.current = {
-      animated,
-      // Initial rendering can report its layout before all variable-height rows
-      // have been measured. A few non-animated frames make the opening position
-      // deterministic without affecting a user's later scroll position.
-      remainingFrames: animated ? 1 : 4,
+      pendingScroll.current = {
+        animated,
+        // Initial rendering can report its layout before all variable-height rows
+        // have been measured. A few non-animated frames make the opening position
+        // deterministic without affecting a user's later scroll position.
+        remainingFrames: animated ? 1 : 12,
+        revealAfterScroll,
+      };
+    },
+    []
+  );
+
+  useFocusEffect(
+    useCallback(() => {
+      // A route can reuse this mounted screen with a new conversation ID.
+      void conversationId;
+      listRef.current?.scrollToEnd({ animated: false });
+      const task = InteractionManager.runAfterInteractions(() => {
+        requestScrollToEnd(false);
+        listRef.current?.scrollToEnd({ animated: false });
+      });
+      return () => task.cancel();
+    }, [conversationId, requestScrollToEnd])
+  );
+
+  useEffect(() => {
+    const handleShow = ({ height }: { height: number }): void => {
+      setKeyboardHeight(Math.max(0, height));
+      requestScrollToEnd(false);
+      listRef.current?.scrollToEnd({ animated: false });
     };
-  }, []);
+    const handleHide = (): void => {
+      setKeyboardHeight(0);
+      requestScrollToEnd(false);
+    };
+    const subscriptions = [
+      KeyboardEvents.addListener('keyboardWillShow', handleShow),
+      KeyboardEvents.addListener('keyboardDidShow', handleShow),
+      KeyboardEvents.addListener('keyboardWillHide', handleHide),
+      KeyboardEvents.addListener('keyboardDidHide', handleHide),
+    ];
+    return () => subscriptions.forEach((subscription) => subscription.remove());
+  }, [requestScrollToEnd]);
 
   useEffect(() => {
     if (!isFocused) return;
@@ -256,7 +314,7 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
         );
         setNextCursor(cached.nextCursor);
         loadedConversationId.current = conversationId;
-        if (isInitialLoad) requestScrollToEnd(false);
+        if (isInitialLoad) requestScrollToEnd(false, true);
         setInitialState('loaded');
       }
 
@@ -289,7 +347,7 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
         loadedConversationId.current = conversationId;
         setInitialError(null);
         setIsOffline(false);
-        if (isInitialLoad) requestScrollToEnd(false);
+        if (isInitialLoad) requestScrollToEnd(false, true);
         setInitialState('loaded');
       } catch (error: unknown) {
         if (!isActive) return;
@@ -387,10 +445,17 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
       )
     );
     if (conversationPendingMessages.length === 0) return;
+    requestScrollToEnd(false, true);
     setInitialState((current) =>
       current === 'loading' || current === 'error' ? 'loaded' : current
     );
-  }, [conversationId, pendingMediaPreviewUris, pendingMessages, user?.id]);
+  }, [
+    conversationId,
+    pendingMediaPreviewUris,
+    pendingMessages,
+    requestScrollToEnd,
+    user?.id,
+  ]);
 
   useEffect(
     () =>
@@ -402,10 +467,17 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
     [subscribeToMessageStatuses]
   );
 
+  const renderedMessages = useMemo(
+    () => [
+      ...new Map(messages.map((message) => [message.id, message])).values(),
+    ],
+    [messages]
+  );
+
   let latestIncomingMessageId: string | null = null;
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    if (messages[index].senderId !== user?.id) {
-      latestIncomingMessageId = messages[index].id;
+  for (let index = renderedMessages.length - 1; index >= 0; index -= 1) {
+    if (renderedMessages[index].senderId !== user?.id) {
+      latestIncomingMessageId = renderedMessages[index].id;
       break;
     }
   }
@@ -511,25 +583,119 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
     user?.id,
   ]);
 
-  const attachPhoto = useCallback(async () => {
+  const prepareComposerImage = useCallback(
+    async (loader: () => Promise<PreparedImage | null>) => {
+      if (isMediaBusy || isSending) return;
+      setIsMediaBusy(true);
+      setSendError(null);
+      try {
+        const image = await loader();
+        if (image && currentConversationIdRef.current === conversationId) {
+          setSelectedImage({ conversationId, image });
+        }
+      } catch (error: unknown) {
+        const message =
+          error instanceof Error
+            ? error.message
+            : 'Unable to prepare this photo. Please try again.';
+        setSendError(message);
+      } finally {
+        setIsMediaBusy(false);
+      }
+    },
+    [conversationId, isMediaBusy, isSending]
+  );
+
+  const attachPhoto = useCallback(
+    () => prepareComposerImage(pickCompressedImage),
+    [prepareComposerImage]
+  );
+
+  const capturePhoto = useCallback(
+    () => prepareComposerImage(captureCompressedImage),
+    [prepareComposerImage]
+  );
+
+  const selectGalleryImage = useCallback(
+    (source: ImageSource) =>
+      prepareComposerImage(() => prepareImageSource(source)),
+    [prepareComposerImage]
+  );
+
+  const appendSharedText = useCallback((sharedText: string): void => {
+    setDraft((current) => {
+      const trimmed = current.trimEnd();
+      return trimmed ? `${trimmed}\n${sharedText}` : sharedText;
+    });
+    setSendError(null);
+  }, []);
+
+  const shareCurrentLocation = useCallback(async (): Promise<void> => {
     if (isMediaBusy || isSending) return;
     setIsMediaBusy(true);
     setSendError(null);
     try {
-      const image = await pickCompressedImage();
-      if (image && currentConversationIdRef.current === conversationId) {
-        setSelectedImage({ conversationId, image });
+      const permission = await Location.requestForegroundPermissionsAsync();
+      if (!permission.granted) {
+        throw new Error(
+          'Location permission is required to share your current location.'
+        );
       }
+      const location = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+      const latitude = location.coords.latitude.toFixed(6);
+      const longitude = location.coords.longitude.toFixed(6);
+      appendSharedText(
+        `📍 ${latitude}, ${longitude}\nhttps://maps.google.com/?q=${latitude},${longitude}`
+      );
     } catch (error: unknown) {
-      const message =
+      setSendError(
         error instanceof Error
           ? error.message
-          : 'Unable to prepare this photo. Please try again.';
-      setSendError(message);
+          : 'Unable to get your current location.'
+      );
     } finally {
       setIsMediaBusy(false);
     }
-  }, [conversationId, isMediaBusy, isSending]);
+  }, [appendSharedText, isMediaBusy, isSending]);
+
+  const shareContact = useCallback(async (): Promise<void> => {
+    if (isMediaBusy || isSending) return;
+    setIsMediaBusy(true);
+    setSendError(null);
+    try {
+      if (!(await Contacts.isAvailableAsync())) {
+        throw new Error('Contact sharing is not available on this device.');
+      }
+      if (Platform.OS === 'android') {
+        const permission = await Contacts.requestPermissionsAsync();
+        if (!permission.granted) {
+          throw new Error(
+            'Contacts permission is required to choose a contact.'
+          );
+        }
+      }
+      const contact = await Contacts.presentContactPickerAsync();
+      if (!contact) return;
+
+      const phoneNumber =
+        contact.phoneNumbers?.find((phone) => phone.isPrimary && phone.number)
+          ?.number ??
+        contact.phoneNumbers?.find((phone) => phone.number)?.number;
+      const email = contact.emails?.find((entry) => entry.email)?.email;
+      const details = [phoneNumber ? `📞 ${phoneNumber}` : null, email]
+        .filter((value): value is string => Boolean(value))
+        .join('\n');
+      appendSharedText(`👤 ${contact.name}${details ? `\n${details}` : ''}`);
+    } catch (error: unknown) {
+      setSendError(
+        error instanceof Error ? error.message : 'Unable to open your contacts.'
+      );
+    } finally {
+      setIsMediaBusy(false);
+    }
+  }, [appendSharedText, isMediaBusy, isSending]);
 
   const flushPendingScroll = useCallback(() => {
     const requestedScroll = pendingScroll.current;
@@ -550,6 +716,9 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
 
       pendingScroll.current = null;
       isScrollFlushScheduled.current = false;
+      if (requestedScroll.revealAfterScroll) {
+        setIsInitialPositionReady(true);
+      }
     };
 
     isScrollFlushScheduled.current = true;
@@ -614,10 +783,11 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
       <FlatList
         contentContainerStyle={[
           styles.listContent,
-          messages.length === 0 && styles.emptyList,
+          renderedMessages.length === 0 && styles.emptyList,
         ]}
-        data={messages}
+        data={renderedMessages}
         keyboardShouldPersistTaps="handled"
+        key={`messages-${conversationId}`}
         keyExtractor={(message) => message.id}
         ListEmptyComponent={
           <View style={styles.emptyState}>
@@ -650,6 +820,14 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
             </View>
           ) : null
         }
+        ListFooterComponent={
+          <View
+            accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants"
+            pointerEvents="none"
+            style={{ height: composerHeight + keyboardHeight + 16 }}
+          />
+        }
         maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
         onContentSizeChange={flushPendingScroll}
         onLayout={flushPendingScroll}
@@ -660,9 +838,32 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
             message={item}
           />
         )}
-        style={styles.list}
+        scrollEnabled={isInitialPositionReady}
+        style={[
+          styles.list,
+          !isInitialPositionReady && styles.positioningContent,
+        ]}
       />
-      <KeyboardStickyView>
+      <KeyboardStickyView
+        enabled={isFocused && Platform.OS !== 'web'}
+        key={`composer-${conversationId}`}
+        onLayout={(event) => {
+          const nextHeight = Math.ceil(event.nativeEvent.layout.height);
+          setComposerHeight((current) =>
+            current === nextHeight ? current : nextHeight
+          );
+          if (!hasMeasuredComposerForConversation.current) {
+            hasMeasuredComposerForConversation.current = true;
+            requestScrollToEnd(false);
+            requestAnimationFrame(flushPendingScroll);
+          }
+        }}
+        pointerEvents={isInitialPositionReady ? 'box-none' : 'none'}
+        style={[
+          styles.composerDock,
+          !isInitialPositionReady && styles.positioningContent,
+        ]}
+      >
         <SafeAreaView edges={['bottom']} style={styles.composerSafeArea}>
           <MessageComposer
             attachmentUri={
@@ -673,7 +874,10 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
             connectionState={connectionState}
             isMediaBusy={isMediaBusy || isSending}
             isSending={isSending}
-            onAttach={() => void attachPhoto()}
+            onAttach={attachPhoto}
+            onCamera={capturePhoto}
+            onContact={shareContact}
+            onLocation={shareCurrentLocation}
             onRemoveAttachment={() => setSelectedImage(null)}
             onChangeText={(value) => {
               setDraft(value);
@@ -681,11 +885,22 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
             }}
             onRetryConnection={retryConnection}
             onSend={() => void sendDraft()}
+            onSelectGalleryImage={selectGalleryImage}
+            onUnavailableAction={(label) =>
+              setSendError(
+                `${label} needs the next Feature 19 message-type milestone.`
+              )
+            }
             sendError={sendError}
             value={draft}
           />
         </SafeAreaView>
       </KeyboardStickyView>
+      {!isInitialPositionReady ? (
+        <View pointerEvents="none" style={styles.positioningOverlay}>
+          <ActivityIndicator color={c.accentPrimary} size="large" />
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -699,7 +914,14 @@ const createStyles = (c: typeof colors.light) =>
       justifyContent: 'center',
       padding: 32,
     },
-    composerSafeArea: { backgroundColor: c.bgBase, paddingBottom: 8 },
+    composerSafeArea: { backgroundColor: 'transparent', paddingBottom: 8 },
+    composerDock: {
+      bottom: 0,
+      left: 0,
+      position: 'absolute',
+      right: 0,
+      zIndex: 10,
+    },
     container: { backgroundColor: c.bgBase, flex: 1 },
     earlierButton: {
       borderColor: c.border,
@@ -732,7 +954,10 @@ const createStyles = (c: typeof colors.light) =>
       textAlign: 'center',
     },
     list: { flex: 1 },
-    listContent: { paddingHorizontal: 12, paddingVertical: 12 },
+    listContent: {
+      paddingHorizontal: 12,
+      paddingTop: 12,
+    },
     offlineNotice: {
       alignItems: 'center',
       backgroundColor: c.bgSurface,
@@ -753,6 +978,18 @@ const createStyles = (c: typeof colors.light) =>
       color: c.onStateAction,
       fontSize: 15,
       fontWeight: '600',
+    },
+    positioningContent: { opacity: 0 },
+    positioningOverlay: {
+      alignItems: 'center',
+      backgroundColor: c.bgBase,
+      bottom: 0,
+      justifyContent: 'center',
+      left: 0,
+      position: 'absolute',
+      right: 0,
+      top: 0,
+      zIndex: 20,
     },
     stateText: {
       color: c.textMuted,

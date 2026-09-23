@@ -6,23 +6,31 @@ import {
   ActivityIndicator,
   AppState,
   FlatList,
+  Modal,
   Platform,
   Pressable,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from 'react-native-safe-area-context';
 
 import { ConversationRow } from '@/components/conversations/conversation-row';
 import { ConversationAvatar } from '@/components/conversations/conversation-avatar';
 import { EmptyConversationList } from '@/components/conversations/empty-conversation-list';
-import { ThemeToggle } from '@/components/theme/theme-toggle';
+import { UserSearchResult } from '@/components/conversations/user-search-result';
 import { messagingColors as colors, radius, spacing } from '@/constants/theme';
 import { ApiError, isConnectivityError } from '@/lib/api/client';
 import {
+  createDirectConversation,
   getConversations,
+  searchUsers,
   type ConversationListItem,
+  type ConversationParticipant,
 } from '@/lib/api/conversations';
 import { useAuth } from '@/lib/auth/AuthContext';
 import {
@@ -36,6 +44,10 @@ import {
   useSocket,
 } from '@/lib/socket/SocketContext';
 import { useAppColorScheme } from '@/lib/theme/useAppColorScheme';
+import {
+  type ThemePreference,
+  useAppTheme,
+} from '@/lib/theme/ThemeContext';
 
 function getErrorMessage(error: unknown): string {
   return error instanceof ApiError
@@ -43,7 +55,18 @@ function getErrorMessage(error: unknown): string {
     : 'Unable to load conversations. Please try again.';
 }
 
+function getSearchErrorMessage(error: unknown): string {
+  return error instanceof ApiError
+    ? error.message
+    : 'Unable to search for people. Please try again.';
+}
+
 const statusRank = { SENT: 1, DELIVERED: 2, READ: 3 } as const;
+const themeOptions: { label: string; value: ThemePreference }[] = [
+  { label: 'Light', value: 'light' },
+  { label: 'Dark', value: 'dark' },
+  { label: 'System', value: 'system' },
+];
 
 function isInboxActuallyVisible(isFocused: boolean): boolean {
   if (!isFocused) return false;
@@ -119,11 +142,31 @@ export default function HomeScreen() {
   const [isOffline, setIsOffline] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [reloadVersion, setReloadVersion] = useState(0);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isThemeDropdownOpen, setIsThemeDropdownOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<
+    ConversationParticipant[]
+  >([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchErrorMessage, setSearchErrorMessage] = useState<string | null>(
+    null
+  );
+  const [creationErrorMessage, setCreationErrorMessage] = useState<
+    string | null
+  >(null);
+  const [creatingUserId, setCreatingUserId] = useState<string | null>(null);
+  const [searchVersion, setSearchVersion] = useState(0);
   const hasLoaded = useRef(false);
   const retryRequested = useRef(false);
+  const searchRequestSequence = useRef(0);
+  const isMounted = useRef(true);
   const conversationsRef = useRef<ConversationListItem[]>([]);
   const liveRevision = useRef(0);
+  const insets = useSafeAreaInsets();
+  const trimmedSearchQuery = searchQuery.trim();
   const scheme = useAppColorScheme();
+  const { preference, setPreference } = useAppTheme();
   const c = colors[scheme];
   const styles = createStyles(c);
 
@@ -179,6 +222,81 @@ export default function HomeScreen() {
     },
     [replaceConversations]
   );
+
+  useEffect(() => {
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const sequence = ++searchRequestSequence.current;
+    if (!trimmedSearchQuery) {
+      setSearchResults([]);
+      setSearchErrorMessage(null);
+      setCreationErrorMessage(null);
+      setIsSearching(false);
+      return;
+    }
+
+    setSearchResults([]);
+    setSearchErrorMessage(null);
+    setCreationErrorMessage(null);
+    setIsSearching(true);
+
+    const timer = setTimeout(() => {
+      void searchUsers(trimmedSearchQuery)
+        .then((results) => {
+          if (searchRequestSequence.current === sequence) {
+            setSearchResults(results);
+          }
+        })
+        .catch((error: unknown) => {
+          if (searchRequestSequence.current === sequence) {
+            setSearchErrorMessage(getSearchErrorMessage(error));
+          }
+        })
+        .finally(() => {
+          if (searchRequestSequence.current === sequence) {
+            setIsSearching(false);
+          }
+        });
+    }, 300);
+
+    return () => {
+      clearTimeout(timer);
+      if (searchRequestSequence.current === sequence) {
+        searchRequestSequence.current += 1;
+      }
+    };
+  }, [searchVersion, trimmedSearchQuery]);
+
+  const chooseUser = useCallback(async (participantId: string) => {
+    setCreatingUserId(participantId);
+    setCreationErrorMessage(null);
+    try {
+      const conversation = await createDirectConversation(participantId);
+      if (!isMounted.current) return;
+      setSearchQuery('');
+      router.push({
+        pathname: '/(app)/conversation/[conversationId]',
+        params: {
+          conversationId: conversation.id,
+          participantName: conversation.participant.displayName,
+        },
+      });
+    } catch (error: unknown) {
+      if (isMounted.current) {
+        setCreationErrorMessage(getSearchErrorMessage(error));
+      }
+    } finally {
+      if (isMounted.current) setCreatingUserId(null);
+    }
+  }, []);
+
+  const retrySearch = useCallback(() => {
+    setSearchVersion((version) => version + 1);
+  }, []);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -383,36 +501,161 @@ export default function HomeScreen() {
             ) : null}
             <Text style={styles.title}>Envelo</Text>
           </View>
-          <View style={styles.headerActions}>
+          <Pressable
+            accessibilityLabel="Open inbox menu"
+            accessibilityRole="button"
+            accessibilityState={{ expanded: isMenuOpen }}
+            onPress={() => {
+              setIsThemeDropdownOpen(false);
+              setIsMenuOpen(true);
+            }}
+            style={({ pressed }) => [
+              styles.iconButton,
+              pressed && styles.headerButtonPressed,
+            ]}
+          >
+            <MaterialIcons color={c.textMuted} name="more-vert" size={26} />
+          </Pressable>
+        </View>
+        <View style={styles.searchBox}>
+          <MaterialIcons color={c.textMuted} name="search" size={21} />
+          <TextInput
+            accessibilityLabel="Search chats or people"
+            autoCapitalize="none"
+            autoCorrect={false}
+            maxLength={100}
+            onChangeText={setSearchQuery}
+            placeholder="Search chats or people"
+            placeholderTextColor={c.textMuted}
+            returnKeyType="search"
+            style={styles.searchInput}
+            value={searchQuery}
+          />
+          {searchQuery ? (
             <Pressable
-              accessibilityLabel="New conversation"
+              accessibilityLabel="Clear search"
               accessibilityRole="button"
-              onPress={openNewConversation}
+              hitSlop={8}
+              onPress={() => setSearchQuery('')}
+              style={({ pressed }) => pressed && styles.headerButtonPressed}
+            >
+              <MaterialIcons color={c.textMuted} name="close" size={20} />
+            </Pressable>
+          ) : null}
+        </View>
+      </View>
+
+      <Modal
+        animationType="fade"
+        onRequestClose={() => {
+          setIsThemeDropdownOpen(false);
+          setIsMenuOpen(false);
+        }}
+        statusBarTranslucent
+        transparent
+        visible={isMenuOpen}
+      >
+        <Pressable
+          accessibilityLabel="Close inbox menu"
+          onPress={() => {
+            setIsThemeDropdownOpen(false);
+            setIsMenuOpen(false);
+          }}
+          style={styles.menuBackdrop}
+        >
+          <Pressable
+            onPress={(event) => event.stopPropagation()}
+            style={[styles.menuCard, { top: insets.top + 54 }]}
+          >
+            <Pressable
+              accessibilityLabel={`Theme, ${preference}`}
+              accessibilityRole="button"
+              accessibilityState={{ expanded: isThemeDropdownOpen }}
+              onPress={() => setIsThemeDropdownOpen((open) => !open)}
               style={({ pressed }) => [
-                styles.composeButton,
-                pressed && styles.headerButtonPressed,
+                styles.menuThemeRow,
+                pressed && styles.menuActionPressed,
               ]}
             >
-              <MaterialIcons color={c.onAccent} name="edit" size={22} />
+              <View style={styles.menuItemLabel}>
+                <MaterialIcons
+                  color={c.textPrimary}
+                  name="palette"
+                  size={20}
+                />
+                <Text style={styles.menuItemText}>Theme</Text>
+              </View>
+              <View style={styles.currentTheme}>
+                <Text style={styles.currentThemeText}>
+                  {themeOptions.find((option) => option.value === preference)
+                    ?.label ?? 'System'}
+                </Text>
+                <MaterialIcons
+                  color={c.textMuted}
+                  name={
+                    isThemeDropdownOpen ? 'expand-less' : 'expand-more'
+                  }
+                  size={21}
+                />
+              </View>
             </Pressable>
+            {isThemeDropdownOpen ? (
+              <View style={styles.themeOptions}>
+                {themeOptions.map((option) => {
+                  const selected = option.value === preference;
+                  return (
+                    <Pressable
+                      accessibilityRole="menuitem"
+                      key={option.value}
+                      onPress={() => {
+                        void setPreference(option.value);
+                        setIsThemeDropdownOpen(false);
+                      }}
+                      style={({ pressed }) => [
+                        styles.themeOption,
+                        selected && styles.themeOptionSelected,
+                        pressed && styles.menuActionPressed,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.themeOptionText,
+                          selected && styles.themeOptionTextSelected,
+                        ]}
+                      >
+                        {option.label}
+                      </Text>
+                      {selected ? (
+                        <MaterialIcons
+                          color={c.accentPrimary}
+                          name="check"
+                          size={19}
+                        />
+                      ) : null}
+                    </Pressable>
+                  );
+                })}
+              </View>
+            ) : null}
+            <View style={styles.menuDivider} />
             <Pressable
               accessibilityLabel="Log out"
               accessibilityRole="button"
-              onPress={() => void signOut()}
+              onPress={() => {
+                setIsMenuOpen(false);
+                void signOut();
+              }}
               style={({ pressed }) => [
-                styles.iconButton,
-                pressed && styles.headerButtonPressed,
+                styles.menuActionRow,
+                pressed && styles.menuActionPressed,
               ]}
             >
-              <MaterialIcons color={c.textMuted} name="logout" size={22} />
+              <MaterialIcons color={c.textPrimary} name="logout" size={20} />
+              <Text style={styles.menuItemText}>Log out</Text>
             </Pressable>
-          </View>
-        </View>
-        <View style={styles.themeRow}>
-          <Text style={styles.themeLabel}>Theme</Text>
-          <ThemeToggle />
-        </View>
-      </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
 
       {isOffline && !errorMessage ? (
         <View style={styles.offlineNotice}>
@@ -422,7 +665,58 @@ export default function HomeScreen() {
         </View>
       ) : null}
 
-      {isLoading ? (
+      {trimmedSearchQuery ? (
+        <View style={styles.searchResultsContainer}>
+          {isSearching ? (
+            <View style={styles.searchStatusRow}>
+              <ActivityIndicator color={c.accentPrimary} size="small" />
+              <Text style={styles.searchStatusText}>Searching…</Text>
+            </View>
+          ) : null}
+
+          {searchErrorMessage ? (
+            <View style={styles.searchErrorContainer}>
+              <Text style={styles.errorText}>{searchErrorMessage}</Text>
+              <Pressable
+                accessibilityRole="button"
+                onPress={retrySearch}
+                style={styles.searchRetryButton}
+              >
+                <Text style={styles.searchRetryText}>Try again</Text>
+              </Pressable>
+            </View>
+          ) : null}
+
+          {creationErrorMessage ? (
+            <View style={styles.searchErrorContainer}>
+              <Text style={styles.errorText}>{creationErrorMessage}</Text>
+            </View>
+          ) : null}
+
+          <FlatList
+            contentContainerStyle={
+              searchResults.length === 0 ? styles.searchEmptyList : undefined
+            }
+            data={searchResults}
+            keyboardShouldPersistTaps="handled"
+            keyExtractor={(result) => result.id}
+            ListEmptyComponent={
+              !isSearching && !searchErrorMessage ? (
+                <Text style={styles.searchEmptyText}>No users found.</Text>
+              ) : null
+            }
+            renderItem={({ item }) => (
+              <UserSearchResult
+                isCreating={creatingUserId === item.id}
+                isDisabled={creatingUserId !== null}
+                onPress={() => void chooseUser(item.id)}
+                user={item}
+              />
+            )}
+            style={styles.list}
+          />
+        </View>
+      ) : isLoading ? (
         <View style={styles.centeredState}>
           <ActivityIndicator color={c.accentPrimary} size="large" />
           <Text style={styles.stateText}>Loading conversations…</Text>
@@ -479,30 +773,15 @@ const createStyles = (c: typeof colors.light) =>
       textAlign: 'center',
     },
     header: {
-      borderBottomColor: c.border,
-      borderBottomWidth: StyleSheet.hairlineWidth,
       gap: spacing.md,
       paddingHorizontal: spacing.md,
       paddingVertical: spacing.md,
-    },
-    headerActions: {
-      alignItems: 'center',
-      flexDirection: 'row',
-      gap: spacing.sm,
     },
     headerButtonPressed: { opacity: 0.72 },
     headerTopRow: {
       alignItems: 'center',
       flexDirection: 'row',
       justifyContent: 'space-between',
-    },
-    composeButton: {
-      alignItems: 'center',
-      backgroundColor: c.accentPrimary,
-      borderRadius: spacing.lg,
-      height: spacing.xl + spacing.md,
-      justifyContent: 'center',
-      width: spacing.xl + spacing.md,
     },
     iconButton: {
       alignItems: 'center',
@@ -512,6 +791,62 @@ const createStyles = (c: typeof colors.light) =>
       width: spacing.xl + spacing.md,
     },
     list: { flex: 1 },
+    currentTheme: {
+      alignItems: 'center',
+      flexDirection: 'row',
+      gap: spacing.xs,
+    },
+    currentThemeText: { color: c.textMuted, fontSize: 14, fontWeight: '500' },
+    menuActionPressed: { backgroundColor: c.bgSurface },
+    menuActionRow: {
+      alignItems: 'center',
+      flexDirection: 'row',
+      gap: spacing.sm,
+      minHeight: 48,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.sm,
+    },
+    menuBackdrop: {
+      backgroundColor: 'rgba(0, 0, 0, 0.16)',
+      flex: 1,
+    },
+    menuCard: {
+      backgroundColor: c.bgBase,
+      borderColor: c.border,
+      borderRadius: radius.md,
+      borderWidth: StyleSheet.hairlineWidth,
+      elevation: 8,
+      overflow: 'hidden',
+      position: 'absolute',
+      right: spacing.md,
+      shadowColor: '#000000',
+      shadowOffset: { height: 4, width: 0 },
+      shadowOpacity: 0.18,
+      shadowRadius: 12,
+      width: 220,
+    },
+    menuDivider: {
+      backgroundColor: c.border,
+      height: StyleSheet.hairlineWidth,
+    },
+    menuItemLabel: {
+      alignItems: 'center',
+      flexDirection: 'row',
+      gap: spacing.sm,
+    },
+    menuItemText: {
+      color: c.textPrimary,
+      fontSize: 15,
+      fontWeight: '500',
+    },
+    menuThemeRow: {
+      alignItems: 'center',
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      minHeight: 56,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.sm,
+    },
     offlineNotice: {
       alignItems: 'center',
       backgroundColor: c.bgSurface,
@@ -534,12 +869,76 @@ const createStyles = (c: typeof colors.light) =>
       fontWeight: '600',
     },
     safeArea: { backgroundColor: c.bgBase, flex: 1 },
+    searchBox: {
+      alignItems: 'center',
+      backgroundColor: c.bgSurface,
+      borderColor: c.border,
+      borderRadius: 999,
+      borderWidth: StyleSheet.hairlineWidth,
+      flexDirection: 'row',
+      gap: spacing.sm,
+      minHeight: 42,
+      paddingHorizontal: spacing.md,
+    },
+    searchEmptyList: { flexGrow: 1, justifyContent: 'center' },
+    searchEmptyText: {
+      color: c.textMuted,
+      fontSize: 15,
+      padding: spacing.xl,
+      textAlign: 'center',
+    },
+    searchErrorContainer: {
+      alignItems: 'center',
+      paddingHorizontal: spacing.lg,
+      paddingTop: spacing.md,
+    },
+    searchInput: {
+      color: c.textPrimary,
+      flex: 1,
+      fontSize: 16,
+      paddingVertical: spacing.xs,
+    },
+    searchResultsContainer: { flex: 1 },
+    searchRetryButton: {
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.sm,
+    },
+    searchRetryText: {
+      color: c.accentPrimary,
+      fontSize: 14,
+      fontWeight: '600',
+    },
+    searchStatusRow: {
+      alignItems: 'center',
+      flexDirection: 'row',
+      gap: spacing.sm,
+      paddingHorizontal: spacing.lg,
+      paddingTop: spacing.md,
+    },
+    searchStatusText: { color: c.textMuted, fontSize: 14 },
     stateText: { color: c.textMuted, fontSize: 15, marginTop: spacing.sm },
-    themeLabel: { color: c.textMuted, fontSize: 12, fontWeight: '600' },
-    themeRow: {
+    themeOption: {
       alignItems: 'center',
       flexDirection: 'row',
       justifyContent: 'space-between',
+      minHeight: 42,
+      paddingHorizontal: spacing.md,
+      paddingVertical: spacing.sm,
+    },
+    themeOptionSelected: { backgroundColor: c.bgSurface },
+    themeOptionText: {
+      color: c.textPrimary,
+      fontSize: 14,
+      fontWeight: '500',
+    },
+    themeOptionTextSelected: {
+      color: c.accentPrimary,
+      fontWeight: '500',
+    },
+    themeOptions: {
+      borderTopColor: c.border,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      paddingVertical: spacing.xs,
     },
     title: { color: c.textPrimary, fontSize: 28, fontWeight: '700' },
   });

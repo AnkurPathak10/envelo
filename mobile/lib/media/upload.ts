@@ -28,23 +28,18 @@ export interface PreparedImage {
   mimeType: 'image/jpeg';
 }
 
-export async function pickCompressedImage(): Promise<PreparedImage | null> {
-  const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-  if (!permission.granted) {
-    throw new Error('Photo library permission is required to choose an image.');
-  }
+export interface ImageSource {
+  uri: string;
+  width: number;
+  height: number;
+}
 
-  const result = await ImagePicker.launchImageLibraryAsync({
-    mediaTypes: ['images'],
-    allowsMultipleSelection: false,
-    quality: 1,
-  });
-  if (result.canceled) return null;
-
-  const asset = result.assets[0];
-  const context = ImageManipulator.manipulate(asset.uri);
-  if (Math.max(asset.width, asset.height) > MAX_IMAGE_DIMENSION) {
-    if (asset.width >= asset.height) {
+export async function prepareImageSource(
+  source: ImageSource
+): Promise<PreparedImage> {
+  const context = ImageManipulator.manipulate(source.uri);
+  if (Math.max(source.width, source.height) > MAX_IMAGE_DIMENSION) {
+    if (source.width >= source.height) {
       context.resize({ width: MAX_IMAGE_DIMENSION });
     } else {
       context.resize({ height: MAX_IMAGE_DIMENSION });
@@ -61,6 +56,37 @@ export async function pickCompressedImage(): Promise<PreparedImage | null> {
     fileName: `envelo-${Date.now()}.jpg`,
     mimeType: 'image/jpeg',
   };
+}
+
+export async function pickCompressedImage(): Promise<PreparedImage | null> {
+  const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+  if (!permission.granted) {
+    throw new Error('Photo library permission is required to choose an image.');
+  }
+
+  const result = await ImagePicker.launchImageLibraryAsync({
+    mediaTypes: ['images'],
+    allowsMultipleSelection: false,
+    quality: 1,
+  });
+  if (result.canceled) return null;
+
+  const asset = result.assets[0];
+  return prepareImageSource(asset);
+}
+
+export async function captureCompressedImage(): Promise<PreparedImage | null> {
+  const permission = await ImagePicker.requestCameraPermissionsAsync();
+  if (!permission.granted) {
+    throw new Error('Camera permission is required to take a photo.');
+  }
+
+  const result = await ImagePicker.launchCameraAsync({
+    mediaTypes: ['images'],
+    quality: 1,
+  });
+  if (result.canceled) return null;
+  return prepareImageSource(result.assets[0]);
 }
 
 async function uploadErrorMessage(response: Response): Promise<string> {
