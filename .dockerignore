@@ -1,0 +1,14 @@
+.git
+.gitignore
+.claude
+.codex-remote-attachments
+.vscode
+
+**/node_modules
+**/.env
+**/.env.*
+!**/.env.example
+**/dist
+**/src/generated
+
+socket-server/scripts/verify-*.ts

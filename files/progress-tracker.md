@@ -47,6 +47,7 @@ Update this file after every meaningful implementation change.
 
 - Repo restructured into `mobile/`, `backend/`, `socket-server/`
   (see `01-project-setup.md`)
+- Added a production multi-stage Docker image for Render at `socket-server/Dockerfile`. It installs reproducibly with `npm ci`, generates the socket Prisma client from the authoritative backend schema, compiles to the confirmed `dist/index.js` entry point, prunes dev dependencies, and runs as the non-root Node user with only production `node_modules` and `dist/` in the final image. The repository-root `.dockerignore` excludes dependencies, secrets, stale build/generated output, and socket verification harnesses from the build context.
 - Neon Postgres project created and connected
 - Prisma installed in `backend/` (stable v6, pinned explicitly —
   `latest` currently points to an incompatible v8 release
@@ -353,9 +354,9 @@ Update this file after every meaningful implementation change.
   feature is wanted for chat bubbles, authentication, and New conversation;
   Feature 16 intentionally kept those screens out of redesign scope while
   making them all honor the manual theme preference.
-- Docker: Ankur wants to containerize `backend/` and
-  `socket-server/` for local dev and deployment — timing TBD,
-  planned for once `socket-server/` has real code to containerize
+- Docker: socket-server production containerization is complete for Render.
+  Backend containerization and any local multi-service Docker Compose setup
+  remain future work.
 
 ## Architecture Decisions
 
