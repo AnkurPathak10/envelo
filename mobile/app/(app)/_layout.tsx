@@ -1,6 +1,6 @@
 import { Stack } from 'expo-router';
 
-import { colors } from '@/constants/theme';
+import { colors, messagingColors } from '@/constants/theme';
 import { useAppColorScheme } from '@/lib/theme/useAppColorScheme';
 
 export default function AppLayout() {
@@ -26,7 +26,12 @@ export default function AppLayout() {
       />
       <Stack.Screen
         name="conversation/[conversationId]"
-        options={{ headerBackTitle: 'Back', title: 'Conversation' }}
+        options={{
+          headerBackTitle: 'Back',
+          title: 'Conversation',
+          contentStyle: { backgroundColor: messagingColors[scheme].bgBase },
+          headerStyle: { backgroundColor: messagingColors[scheme].bgBase },
+        }}
       />
     </Stack>
   );

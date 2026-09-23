@@ -40,6 +40,51 @@ export const colors = {
   },
 };
 
+// Feature 18 is scoped to the inbox and open chat, not the global light theme.
+export const messagingPalette = {
+  rosyTaupe: '#D39A86',
+  cottonRose: '#E3C4C9',
+  softBlush: '#FEE3E2',
+  platinum: '#F1F0F1',
+  white: '#FEFFFE',
+} as const;
+
+type MessagingColors = typeof colors.light & {
+  outgoingBubble: string;
+  unreadBadge: string;
+  selectedTheme: string;
+  onStateAction: string;
+};
+
+export const messagingColors: Record<'light' | 'dark', MessagingColors> = {
+  light: {
+    ...colors.light,
+    bgBase: messagingPalette.white,
+    bgSurface: messagingPalette.platinum,
+    accentPrimary: messagingPalette.rosyTaupe,
+    onAccent: colors.light.textPrimary,
+    border: messagingPalette.cottonRose,
+    outgoingBubble: messagingPalette.softBlush,
+    unreadBadge: messagingPalette.cottonRose,
+    selectedTheme: messagingPalette.cottonRose,
+    onStateAction: colors.light.textPrimary,
+  },
+  dark: {
+    ...colors.dark,
+    outgoingBubble: colors.dark.accentPrimary,
+    unreadBadge: colors.dark.accentPrimary,
+    selectedTheme: colors.dark.accentPrimary,
+    onStateAction: colors.dark.bgBase,
+  },
+};
+
+export const messagingAvatarColors = [
+  messagingPalette.rosyTaupe,
+  messagingPalette.cottonRose,
+  messagingPalette.softBlush,
+  messagingPalette.platinum,
+] as const;
+
 export const radius = {
   sm: 8,
   md: 16,

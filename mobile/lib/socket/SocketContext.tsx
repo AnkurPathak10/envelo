@@ -15,10 +15,16 @@ import { io, type Socket } from 'socket.io-client';
 import type { MessageStatus, TextMessage } from '@/lib/api/conversations';
 import { useAuth } from '@/lib/auth/AuthContext';
 import {
+  deletePendingMedia,
+  persistPendingMedia,
+} from '@/lib/media/pendingMediaStorage';
+import { uploadImage, type PreparedImage } from '@/lib/media/upload';
+import {
   addPendingMessage,
   createClientMessageId,
   getPendingMessages,
   removePendingMessage,
+  isPendingMediaMessage,
   type PendingMessage,
 } from '@/lib/offline/pendingMessagesStore';
 
@@ -77,10 +83,11 @@ interface SocketContextValue {
   connectionState: SocketConnectionState;
   connectionEpoch: number;
   pendingMessages: PendingMessage[];
-  queueMessage: (payload: {
-    conversationId: string;
-    content: string;
-  }) => Promise<PendingMessage>;
+  queueMessage: (
+    payload:
+      | { conversationId: string; content: string; image?: never }
+      | { conversationId: string; content: string | null; image: PreparedImage }
+  ) => Promise<PendingMessage>;
   retryConnection: () => void;
   sendMessage: (
     payload: MessageSendPayload
@@ -294,7 +301,11 @@ export function SocketProvider({ children }: PropsWithChildren) {
     };
     const handleNewMessage: NewMessageListener = (message) => {
       acknowledgeDeliveredMessages([message]);
-      if (message.senderId === user?.id && message.clientMessageId) {
+      if (
+        message.senderId === user?.id &&
+        currentUserIdRef.current === user.id &&
+        message.clientMessageId
+      ) {
         void pendingConfirmationRef
           .current(message.clientMessageId)
           .catch(() => undefined);
@@ -404,7 +415,17 @@ export function SocketProvider({ children }: PropsWithChildren) {
       if (!user?.id) return;
       const senderId = user.id;
       pendingMutationRevisionRef.current += 1;
+      const queued = (await getPendingMessages(senderId)).find(
+        (message) => message.clientMessageId === clientMessageId
+      );
       await removePendingMessage(senderId, clientMessageId);
+      if (queued && isPendingMediaMessage(queued)) {
+        try {
+          await deletePendingMedia(senderId, clientMessageId);
+        } catch (error) {
+          console.warn('Unable to remove a confirmed local photo.', error);
+        }
+      }
       if (currentUserIdRef.current !== senderId) return;
       setPendingMessages((current) =>
         current.filter((message) => message.clientMessageId !== clientMessageId)
@@ -460,11 +481,29 @@ export function SocketProvider({ children }: PropsWithChildren) {
             }
 
             try {
+              const mediaUrl = isPendingMediaMessage(pendingMessage)
+                ? await uploadImage(
+                    {
+                      uri: pendingMessage.mediaLocalUri,
+                      fileName: pendingMessage.mediaFileName,
+                      mimeType: pendingMessage.mediaMimeType,
+                    },
+                    true
+                  )
+                : undefined;
+              if (
+                currentUserIdRef.current !== senderId ||
+                socketRef.current !== flushSocket ||
+                !flushSocket.connected
+              ) {
+                break;
+              }
               const acknowledgement = await sendMessageThroughSocket(
                 flushSocket,
                 {
                   conversationId: pendingMessage.conversationId,
                   content: pendingMessage.content,
+                  mediaUrl,
                   clientMessageId: pendingMessage.clientMessageId,
                 }
               );
@@ -494,12 +533,19 @@ export function SocketProvider({ children }: PropsWithChildren) {
   };
 
   const queueMessage = useCallback(
-    async (payload: {
-      conversationId: string;
-      content: string;
-    }): Promise<PendingMessage> => {
+    async (
+      payload:
+        | { conversationId: string; content: string; image?: never }
+        | {
+            conversationId: string;
+            content: string | null;
+            image: PreparedImage;
+          }
+    ): Promise<PendingMessage> => {
       if (!user?.id)
         throw new Error('Cannot queue a message while signed out.');
+      const senderId = user.id;
+      const clientMessageId = createClientMessageId();
 
       const createdAtMilliseconds = Math.max(
         Date.now(),
@@ -507,19 +553,45 @@ export function SocketProvider({ children }: PropsWithChildren) {
       );
       lastPendingTimestampRef.current = createdAtMilliseconds;
 
-      const pendingMessage: PendingMessage = {
-        clientMessageId: createClientMessageId(),
+      const common = {
+        clientMessageId,
         conversationId: payload.conversationId,
-        senderId: user.id,
-        content: payload.content,
+        senderId,
         createdAt: new Date(createdAtMilliseconds).toISOString(),
       };
+      let pendingMessage: PendingMessage;
+      if (payload.image) {
+        const mediaLocalUri = await persistPendingMedia(
+          payload.image,
+          senderId,
+          clientMessageId
+        );
+        if (currentUserIdRef.current !== senderId) {
+          await deletePendingMedia(senderId, clientMessageId);
+          throw new Error('Account changed before the photo was saved.');
+        }
+        pendingMessage = {
+          ...common,
+          kind: 'media',
+          content: payload.content,
+          mediaLocalUri,
+          mediaFileName: payload.image.fileName,
+          mediaMimeType: payload.image.mimeType,
+        };
+      } else {
+        pendingMessage = { ...common, kind: 'text', content: payload.content };
+      }
 
       pendingMutationRevisionRef.current += 1;
       setPendingMessages((current) => [...current, pendingMessage]);
       try {
         await addPendingMessage(pendingMessage);
       } catch (error: unknown) {
+        if (isPendingMediaMessage(pendingMessage)) {
+          await deletePendingMedia(senderId, clientMessageId).catch(
+            () => undefined
+          );
+        }
         setPendingMessages((current) =>
           current.filter(
             (message) =>
@@ -530,15 +602,15 @@ export function SocketProvider({ children }: PropsWithChildren) {
       }
 
       try {
-        const storedMessages = await getPendingMessages(user.id);
-        if (currentUserIdRef.current === user.id) {
+        const storedMessages = await getPendingMessages(senderId);
+        if (currentUserIdRef.current === senderId) {
           setPendingMessages(storedMessages);
         }
       } catch {
         // The optimistic state is already durable; a later load will reconcile.
       }
 
-      if (currentUserIdRef.current === user.id) {
+      if (currentUserIdRef.current === senderId) {
         pendingQueueFlushRef.current();
       }
       return pendingMessage;

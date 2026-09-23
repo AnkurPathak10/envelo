@@ -3,6 +3,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { Platform } from 'react-native';
 
 import { ApiError, apiRequest } from '@/lib/api/client';
+import { getPendingMediaBlob } from '@/lib/media/pendingMediaStorage';
 
 const MAX_IMAGE_DIMENSION = 1600;
 const IMAGE_QUALITY = 0.7;
@@ -97,16 +98,25 @@ function belongsToEndpoint(url: string, endpointValue: string): boolean {
   }
 }
 
-export async function uploadImage(image: PreparedImage): Promise<string> {
+export async function uploadImage(
+  image: PreparedImage,
+  isQueuedMedia = false
+): Promise<string> {
   const credentials = await apiRequest<UploadCredentials>(
     '/api/media/upload-auth'
   );
   const formData = new FormData();
 
   if (Platform.OS === 'web') {
-    const fileResponse = await fetch(image.uri);
-    if (!fileResponse.ok) throw new Error('Unable to read the selected image.');
-    formData.append('file', await fileResponse.blob(), image.fileName);
+    const blob = isQueuedMedia
+      ? await getPendingMediaBlob(image.uri)
+      : await (async () => {
+          const fileResponse = await fetch(image.uri);
+          if (!fileResponse.ok)
+            throw new Error('Unable to read the selected image.');
+          return fileResponse.blob();
+        })();
+    formData.append('file', blob, image.fileName);
   } else {
     formData.append('file', {
       uri: image.uri,

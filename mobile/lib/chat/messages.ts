@@ -1,5 +1,6 @@
 import type { MessageStatus, TextMessage } from '@/lib/api/conversations';
 import type { PendingMessage } from '@/lib/offline/pendingMessagesStore';
+import { isPendingMediaMessage } from '@/lib/offline/pendingMessagesStore';
 
 export type LocalMessageStatus = MessageStatus | 'PENDING';
 
@@ -86,7 +87,8 @@ export function mergeTextMessages(
 }
 
 export function toPendingTextMessage(
-  message: PendingMessage
+  message: PendingMessage,
+  previewUri?: string
 ): RenderableTextMessage {
   return {
     id: message.clientMessageId,
@@ -94,7 +96,9 @@ export function toPendingTextMessage(
     conversationId: message.conversationId,
     senderId: message.senderId,
     content: message.content,
-    mediaUrl: null,
+    mediaUrl: isPendingMediaMessage(message)
+      ? (previewUri ?? message.mediaLocalUri)
+      : null,
     createdAt: message.createdAt,
     status: 'PENDING',
   };

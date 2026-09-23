@@ -8,7 +8,18 @@ Update this file after every meaningful implementation change.
 
 ## Current Goal
 
+- Verify Feature 18's light-theme chat and inbox colour placement on a real device; see the UI Upgrades section below.
 - Complete Feature 17's ten-case two-device verification checklist, including ImageKit dashboard compression/file-type checks and the offline text-message regression test
+
+## UI Upgrades
+
+- Feature 18: Light Theme Colors for Chat and Conversations — implementation finished; real-device visual acceptance pending.
+  - Added scoped light-mode messaging tokens using the exact supplied palette: Rosy Taupe actions (`#D39A86`), Cotton Rose badges/borders/selected theme toggle (`#E3C4C9`), Soft Blush outgoing bubbles (`#FEE3E2`), Platinum incoming bubbles/input (`#F1F0F1`), and White chat/inbox/header/composer backgrounds (`#FEFFFE`).
+  - Applied these roles to text, pending, and captioned media bubbles, composer controls, conversation rows, empty/error/loading/offline states, and the conversation header. Filled light controls and badges use dark foregrounds; timestamps and status ticks remain legible.
+  - Inbox initials avatars now choose deterministically from the warm palette. Photos are unchanged; the shared avatar's default appearance remains in profile and new-conversation screens.
+  - Existing dark colors, Light/Dark/System selection, screen layout, media preview/offline queue, messaging, and keyboard behavior are preserved. Login, signup, profile, and new-conversation retain their existing palettes.
+  - Validation: mobile TypeScript and Expo lint pass; changed code was formatted with Prettier and the repository whitespace check passes. No running authenticated preview was available for visual inspection.
+  - Verify light-mode colour placement on a real device against the supplied references, then switch between Dark and System before marking this UI upgrade complete.
 
 ## Completed
 
@@ -260,15 +271,18 @@ Update this file after every meaningful implementation change.
   - Added one reusable mobile media helper for both profile and chat flows. It requests gallery permission, selects images only, resizes the longest dimension to at most 1600 pixels, saves as JPEG at 0.7 quality, requests fresh upload credentials, uploads directly to ImageKit with `FormData`, and verifies the returned URL before use.
   - Added an authenticated profile screen opened by tapping the inbox's own avatar. It displays the cached user, supports pick/compress/upload/save with progress and clear errors, preserves the previous avatar after failures, and updates `AuthContext` plus its cached user immediately after success.
   - Upgraded the shared conversation avatar to render remote profile photos with an image-error fallback to the existing deterministic initials/color design. Conversation rows and New conversation search results now receive server-provided avatars.
-  - Added the composer attachment action and an online-only image-send path. Upload and send failures remain retry-capable with the uploaded URL and stable client message ID retained, while offline image attempts are blocked with a clear explanation and the durable text-only queue remains unchanged.
+  - Initially added the composer attachment action and an online-only image-send path. This restriction was superseded by the post-testing offline-media follow-up below.
   - Added media bubble rendering with a loading placeholder, optional caption, the existing sent/read ticks, and a lightweight full-screen dismissible viewer. Cached/history/live messages all retain URL-only media references; no image bytes enter REST responses, socket payloads, or AsyncStorage.
   - Chose to compute the media-only inbox preview (`📷 Photo`) on mobile so the backend continues returning the underlying nullable content and media URL without inventing persisted text. Live and REST/cache inbox paths use the same preview rule.
   - Reviewed the exact Expo SDK 54 ImagePicker/ImageManipulator documentation and ImageKit Upload V1 authentication contract before implementation. Static socket schema checks accept media-only and text-only sends while rejecting empty and foreign-URL sends; backend and socket production builds, mobile TypeScript/lint, Expo SDK dependency/config checks, repository whitespace checks, and full changed-file Prettier checks pass.
   - Web follow-up: added `PATCH` to the API CORS allow-list. Browsers can now complete the authenticated `PATCH /api/users/me` request after a successful direct ImageKit upload; native Expo Go was unaffected because native fetch is not governed by browser CORS.
   - Web follow-up: changed ImageManipulator resize calls to omit the aspect-ratio dimension instead of explicitly passing `null`. Expo SDK 54's web resize implementation treated `null` as a supplied zero dimension and failed in Canvas `createImageData`; omitting it preserves aspect ratio on every platform and avoids the zero-height/width failure.
   - CodeRabbit follow-up: ImageKit endpoint configuration is now parsed, normalized, and restricted to HTTPS before upload credentials or socket validation can use it. Backend and socket URL checks also require at least one actual asset-path segment after the configured endpoint, so the CDN base URL itself cannot be stored as a broken avatar or message image; the mobile upload-response check mirrors the same rule.
-  - CodeRabbit follow-up: a failed media send now records its originating conversation ID and is reused only in that conversation, preventing navigation between chats from attaching an earlier chat's uploaded photo to the current one.
+  - CodeRabbit follow-up (superseded by the composer preview/queue flow below): a failed media send recorded its originating conversation ID to prevent attaching it to another chat.
   - CodeRabbit follow-up: direct ImageKit uploads now abort after 60 seconds and always clear their timer. A stalled request returns a retryable timeout message instead of leaving the profile/composer upload state disabled indefinitely.
+  - Post-real-device follow-up: image selection now compresses immediately and shows a removable thumbnail beside the composer; optional caption and image are only queued when Send is tapped. The previous immediate-upload and offline-blocking behavior was removed.
+  - Extended Feature 14's durable, per-user AsyncStorage queue to media entries. Compressed photos are copied into `expo-file-system` document storage on native (IndexedDB on web), render optimistically from the local copy with a `PENDING` clock, and survive app restarts. The existing per-conversation flush uploads media with fresh ImageKit credentials before its idempotent socket send, retains failed items and ordering, and removes the local copy after server confirmation. Text queue behavior remains unchanged.
+  - Follow-up static checks: mobile TypeScript, Expo lint, changed-file Prettier, web export, and repository whitespace checks pass. Real-device offline/restart/reconnect and ImageKit failure-path checks still require manual verification.
 
 - Inbox orphan-conversation resilience repair:
   - Diagnosed the Expo Go `GET /api/conversations` 500 as legacy database data created when users were manually deleted from Neon: the remaining participant can still see a direct conversation whose other participant row was cascade-deleted.
@@ -294,12 +308,13 @@ Update this file after every meaningful implementation change.
 - Feature 14 manual two-device verification: validate instant online clock-to-tick reconciliation, airplane-mode queueing, force-close/cold-start persistence, automatic recovery, strict same-conversation ordering, independent multi-conversation flushing, and light/dark clock presentation. Server idempotency is live-verified; the physical-device queue and restart scenarios remain pending.
 - Feature 15 manual two-device verification: validate cached chat and inbox rendering in airplane mode (including force-close/reopen), switching among multiple previously opened chats, the expected error for a never-opened chat, reconnect merge/de-duplication, genuine HTTP-error handling, and light/dark offline-notice presentation. The implementation and static checks are complete; these physical-device/browser scenarios remain pending.
 - Feature 16 manual real-device/browser verification: run all ten specification checks for persisted Light/Dark/System behavior, cross-screen theme consistency, two-account live row movement and unread clearing, empty previews, deterministic avatars, timestamp cases, and inbox appearance. The implementation and static checks are complete; this physical-device/browser validation remains pending.
-- Feature 17 manual two-device verification: run all ten specification checks for avatar propagation, image-only and captioned messages, the full-screen viewer, offline image blocking, unchanged offline text queueing, media-only inbox previews, rejection of foreign avatar URLs, actual ImageKit uploads/compression, and light/dark/error states. Also confirm the ImageKit dashboard's image-only restriction and optional file-size limit are configured. The implementation and static checks are complete; external-service and physical-device verification remain pending.
+- Feature 17 manual two-device verification: confirm removable pre-send image preview and optional caption; test offline image queueing, local thumbnail and `PENDING` clock, force-close/reopen persistence, reconnect upload/send, local-file cleanup, same-conversation text/media order after an upload failure, and independent conversations. Re-run avatar propagation, full-screen viewer, media-only inbox previews, foreign-URL rejection, actual ImageKit uploads/compression, and light/dark/error states. Confirm ImageKit's image-only restriction and optional size limit. Physical-device and external-service verification remain pending.
 - Optional Neon data hygiene: delete the legacy conversations with fewer than two participants through the Neon SQL console once a browser session or working direct maintenance connection is available. The app no longer depends on this cleanup because the inbox route excludes them.
 
 ## Next Up
 
-- Decide Feature 18's authentication direction: keep the current password login or design Email OTP, accounting for provider cost, deliverability, abuse controls, and the desired mobile sign-in experience.
+- Finish Feature 18's real-device visual acceptance for the light chat and inbox palette.
+- Decide authentication direction in a separately numbered future feature: keep password login or design Email OTP, accounting for provider cost, deliverability, abuse controls, and the desired mobile sign-in experience.
 
 ## Open Questions
 

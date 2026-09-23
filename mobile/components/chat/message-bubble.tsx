@@ -10,7 +10,7 @@ import {
 
 import { MessageStatusIcon } from '@/components/chat/message-status-icon';
 import { ImageViewerModal } from '@/components/media/image-viewer-modal';
-import { colors, radius } from '@/constants/theme';
+import { messagingColors as colors, radius } from '@/constants/theme';
 import type { RenderableTextMessage } from '@/lib/chat/messages';
 import { useAppColorScheme } from '@/lib/theme/useAppColorScheme';
 
@@ -159,7 +159,7 @@ const createStyles = (c: typeof colors.light) =>
       justifyContent: 'flex-end',
       marginTop: 5,
     },
-    outgoingBubble: { backgroundColor: c.accentPrimary },
+    outgoingBubble: { backgroundColor: c.outgoingBubble },
     outgoingRow: { justifyContent: 'flex-end' },
     outgoingText: { color: c.textPrimary },
     outgoingTimestamp: { color: c.textPrimary, opacity: 0.72 },

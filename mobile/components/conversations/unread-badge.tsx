@@ -1,6 +1,6 @@
 import { StyleSheet, Text, View } from 'react-native';
 
-import { colors, spacing } from '@/constants/theme';
+import { messagingColors as colors, spacing } from '@/constants/theme';
 import { useAppColorScheme } from '@/lib/theme/useAppColorScheme';
 
 export function UnreadBadge({ count }: { count: number }) {
@@ -12,7 +12,7 @@ export function UnreadBadge({ count }: { count: number }) {
   return (
     <View
       accessibilityLabel={`${count} unread ${count === 1 ? 'message' : 'messages'}`}
-      style={[styles.badge, { backgroundColor: c.accentPrimary }]}
+      style={[styles.badge, { backgroundColor: c.unreadBadge }]}
     >
       <Text style={[styles.label, { color: c.onAccent }]}>
         {count > 99 ? '99+' : count}

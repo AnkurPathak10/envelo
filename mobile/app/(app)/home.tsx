@@ -18,7 +18,7 @@ import { ConversationRow } from '@/components/conversations/conversation-row';
 import { ConversationAvatar } from '@/components/conversations/conversation-avatar';
 import { EmptyConversationList } from '@/components/conversations/empty-conversation-list';
 import { ThemeToggle } from '@/components/theme/theme-toggle';
-import { colors, radius, spacing } from '@/constants/theme';
+import { messagingColors as colors, radius, spacing } from '@/constants/theme';
 import { ApiError, isConnectivityError } from '@/lib/api/client';
 import {
   getConversations,
@@ -373,6 +373,7 @@ export default function HomeScreen() {
                 style={({ pressed }) => pressed && styles.headerButtonPressed}
               >
                 <ConversationAvatar
+                  variant="inbox"
                   avatarUrl={user.avatarUrl}
                   name={user.displayName}
                   size={44}
@@ -527,7 +528,11 @@ const createStyles = (c: typeof colors.light) =>
       paddingHorizontal: spacing.md,
       paddingVertical: spacing.sm,
     },
-    retryButtonText: { color: c.bgBase, fontSize: 15, fontWeight: '600' },
+    retryButtonText: {
+      color: c.onStateAction,
+      fontSize: 15,
+      fontWeight: '600',
+    },
     safeArea: { backgroundColor: c.bgBase, flex: 1 },
     stateText: { color: c.textMuted, fontSize: 15, marginTop: spacing.sm },
     themeLabel: { color: c.textMuted, fontSize: 12, fontWeight: '600' },

@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { MessageStatusIcon } from '@/components/chat/message-status-icon';
 import { ConversationAvatar } from '@/components/conversations/conversation-avatar';
 import { UnreadBadge } from '@/components/conversations/unread-badge';
-import { colors, spacing } from '@/constants/theme';
+import { messagingColors as colors, spacing } from '@/constants/theme';
 import type { ConversationListItem } from '@/lib/api/conversations';
 import { formatInboxTimestamp } from '@/lib/format/timestamp';
 import { useAppColorScheme } from '@/lib/theme/useAppColorScheme';
@@ -36,6 +36,7 @@ export function ConversationRow({
       ]}
     >
       <ConversationAvatar
+        variant="inbox"
         avatarUrl={conversation.participant.avatarUrl}
         name={conversation.participant.displayName}
         userId={conversation.participant.id}

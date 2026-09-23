@@ -2,12 +2,29 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const PENDING_MESSAGES_KEY = 'envelo_pending_messages_v1';
 
-export interface PendingMessage {
+interface PendingMessageBase {
   clientMessageId: string;
   conversationId: string;
   senderId: string;
-  content: string;
   createdAt: string;
+}
+
+export type PendingMessage = PendingMessageBase &
+  (
+    | { kind?: 'text'; content: string }
+    | {
+        kind: 'media';
+        content: string | null;
+        mediaLocalUri: string;
+        mediaFileName: string;
+        mediaMimeType: 'image/jpeg';
+      }
+  );
+
+export function isPendingMediaMessage(
+  message: PendingMessage
+): message is Extract<PendingMessage, { kind: 'media' }> {
+  return message.kind === 'media';
 }
 
 let storageMutation = Promise.resolve();
@@ -23,9 +40,19 @@ function isPendingMessage(value: unknown): value is PendingMessage {
     candidate.conversationId.length > 0 &&
     typeof candidate.senderId === 'string' &&
     candidate.senderId.length > 0 &&
-    typeof candidate.content === 'string' &&
-    candidate.content.length > 0 &&
-    candidate.content.length <= 2000 &&
+    (candidate.kind === 'media'
+      ? (candidate.content === null ||
+          (typeof candidate.content === 'string' &&
+            candidate.content.length <= 2000)) &&
+        typeof candidate.mediaLocalUri === 'string' &&
+        candidate.mediaLocalUri.length > 0 &&
+        typeof candidate.mediaFileName === 'string' &&
+        candidate.mediaFileName.length > 0 &&
+        candidate.mediaMimeType === 'image/jpeg'
+      : (candidate.kind === undefined || candidate.kind === 'text') &&
+        typeof candidate.content === 'string' &&
+        candidate.content.length > 0 &&
+        candidate.content.length <= 2000) &&
     typeof candidate.createdAt === 'string' &&
     Number.isFinite(Date.parse(candidate.createdAt))
   );

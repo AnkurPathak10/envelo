@@ -1,6 +1,6 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { colors, radius } from '@/constants/theme';
+import { messagingColors as colors, radius } from '@/constants/theme';
 import { useAppColorScheme } from '@/lib/theme/useAppColorScheme';
 
 interface EmptyConversationListProps {
@@ -40,7 +40,7 @@ const createStyles = (c: typeof colors.light) =>
       paddingHorizontal: 18,
       paddingVertical: 12,
     },
-    buttonText: { color: c.bgBase, fontSize: 15, fontWeight: '600' },
+    buttonText: { color: c.onStateAction, fontSize: 15, fontWeight: '600' },
     container: {
       alignItems: 'center',
       flex: 1,

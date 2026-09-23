@@ -1,7 +1,14 @@
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  Image,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 
-import { colors, radius } from '@/constants/theme';
+import { messagingColors as colors, radius } from '@/constants/theme';
 import type { SocketConnectionState } from '@/lib/socket/SocketContext';
 import { useAppColorScheme } from '@/lib/theme/useAppColorScheme';
 
@@ -10,6 +17,8 @@ interface MessageComposerProps {
   isMediaBusy: boolean;
   isSending: boolean;
   onAttach: () => void;
+  attachmentUri: string | null;
+  onRemoveAttachment: () => void;
   onChangeText: (value: string) => void;
   onRetryConnection: () => void;
   onSend: () => void;
@@ -35,6 +44,8 @@ export function MessageComposer({
   isMediaBusy,
   isSending,
   onAttach,
+  attachmentUri,
+  onRemoveAttachment,
   onChangeText,
   onRetryConnection,
   onSend,
@@ -44,7 +55,8 @@ export function MessageComposer({
   const scheme = useAppColorScheme();
   const c = colors[scheme];
   const styles = createStyles(c);
-  const isSendDisabled = isSending || isMediaBusy || !value.trim();
+  const isSendDisabled =
+    isSending || isMediaBusy || (!value.trim() && !attachmentUri);
   const connectionNotice = getConnectionNotice(connectionState);
 
   return (
@@ -65,6 +77,23 @@ export function MessageComposer({
         <Text style={styles.connectionNotice}>{connectionNotice}</Text>
       ) : null}
       {sendError ? <Text style={styles.errorText}>{sendError}</Text> : null}
+      {attachmentUri ? (
+        <View style={styles.attachmentPreview}>
+          <Image
+            source={{ uri: attachmentUri }}
+            style={styles.attachmentImage}
+          />
+          <Pressable
+            accessibilityLabel="Remove attached photo"
+            accessibilityRole="button"
+            disabled={isSending}
+            onPress={onRemoveAttachment}
+            style={styles.removeAttachment}
+          >
+            <MaterialIcons color={c.textPrimary} name="close" size={20} />
+          </Pressable>
+        </View>
+      ) : null}
       <View style={styles.composerRow}>
         <Pressable
           accessibilityLabel="Attach photo"
@@ -114,6 +143,27 @@ export function MessageComposer({
 
 const createStyles = (c: typeof colors.light) =>
   StyleSheet.create({
+    attachmentPreview: {
+      alignSelf: 'flex-start',
+      marginBottom: 10,
+      position: 'relative',
+    },
+    attachmentImage: {
+      borderRadius: radius.sm,
+      height: 72,
+      width: 72,
+    },
+    removeAttachment: {
+      alignItems: 'center',
+      backgroundColor: c.bgSurface,
+      borderRadius: 14,
+      height: 28,
+      justifyContent: 'center',
+      position: 'absolute',
+      right: -8,
+      top: -8,
+      width: 28,
+    },
     attachButton: {
       alignItems: 'center',
       borderRadius: radius.sm,

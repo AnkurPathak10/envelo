@@ -20,7 +20,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { MessageBubble } from '@/components/chat/message-bubble';
 import { MessageComposer } from '@/components/chat/message-composer';
-import { colors, radius } from '@/constants/theme';
+import { messagingColors as colors, radius } from '@/constants/theme';
 import { ApiError, isConnectivityError } from '@/lib/api/client';
 import { getMessageHistory, type TextMessage } from '@/lib/api/conversations';
 import { useAuth } from '@/lib/auth/AuthContext';
@@ -36,8 +36,9 @@ import {
   toPendingTextMessage,
   updateMessageStatus,
 } from '@/lib/chat/messages';
-import { pickCompressedImage, uploadImage } from '@/lib/media/upload';
-import { createClientMessageId } from '@/lib/offline/pendingMessagesStore';
+import { getPendingMediaPreviewUri } from '@/lib/media/pendingMediaStorage';
+import { pickCompressedImage, type PreparedImage } from '@/lib/media/upload';
+import { isPendingMediaMessage } from '@/lib/offline/pendingMessagesStore';
 import { useSocket, type SocketTextMessage } from '@/lib/socket/SocketContext';
 
 interface ChatScreenProps {
@@ -84,7 +85,6 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
     pendingMessages,
     queueMessage,
     retryConnection,
-    sendMessage,
     subscribeToNewMessages,
     subscribeToMessageStatuses,
   } = useSocket();
@@ -99,11 +99,15 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
   const [draft, setDraft] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [isMediaBusy, setIsMediaBusy] = useState(false);
-  const [mediaRetry, setMediaRetry] = useState<{
-    clientMessageId: string;
+  const [selectedImage, setSelectedImage] = useState<{
     conversationId: string;
-    mediaUrl: string;
+    image: PreparedImage;
   } | null>(null);
+  const [pendingMediaPreviewUris, setPendingMediaPreviewUris] = useState<
+    Record<string, string>
+  >({});
+  const currentConversationIdRef = useRef(conversationId);
+  currentConversationIdRef.current = conversationId;
   const [sendError, setSendError] = useState<string | null>(null);
   const [reloadVersion, setReloadVersion] = useState(0);
   const [isAppViewVisible, setIsAppViewVisible] = useState(
@@ -122,6 +126,43 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
   const scheme = useAppColorScheme();
   const c = colors[scheme];
   const styles = createStyles(c);
+
+  useEffect(() => {
+    setSelectedImage((current) =>
+      current?.conversationId === conversationId ? current : null
+    );
+  }, [conversationId]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    let active = true;
+    const objectUrls: string[] = [];
+    const media = pendingMessages.filter(isPendingMediaMessage);
+    void Promise.all(
+      media.map(async (message) => {
+        try {
+          const uri = await getPendingMediaPreviewUri(message.mediaLocalUri);
+          if (!active) {
+            URL.revokeObjectURL(uri);
+            return null;
+          }
+          objectUrls.push(uri);
+          return [message.clientMessageId, uri] as const;
+        } catch {
+          return null;
+        }
+      })
+    ).then((entries) => {
+      if (active)
+        setPendingMediaPreviewUris(
+          Object.fromEntries(entries.filter((entry) => entry !== null))
+        );
+    });
+    return () => {
+      active = false;
+      for (const uri of objectUrls) URL.revokeObjectURL(uri);
+    };
+  }, [pendingMessages]);
 
   const requestScrollToEnd = useCallback((animated: boolean): void => {
     const currentRequest = pendingScroll.current;
@@ -323,7 +364,12 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
           message.conversationId === conversationId &&
           message.senderId === user?.id
       )
-      .map(toPendingTextMessage);
+      .map((message) =>
+        toPendingTextMessage(
+          message,
+          pendingMediaPreviewUris[message.clientMessageId]
+        )
+      );
     const pendingClientIds = new Set(
       conversationPendingMessages.map((message) => message.clientMessageId)
     );
@@ -344,7 +390,7 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
     setInitialState((current) =>
       current === 'loading' || current === 'error' ? 'loaded' : current
     );
-  }, [conversationId, pendingMessages, user?.id]);
+  }, [conversationId, pendingMediaPreviewUris, pendingMessages, user?.id]);
 
   useEffect(
     () =>
@@ -428,7 +474,11 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
 
   const sendDraft = useCallback(async () => {
     const content = draft.trim();
-    if (!content || !user?.id || isSending) return;
+    const image =
+      selectedImage?.conversationId === conversationId
+        ? selectedImage.image
+        : null;
+    if ((!content && !image) || !user?.id || isSending || isMediaBusy) return;
 
     const draftAtSend = draft;
     setIsSending(true);
@@ -436,80 +486,50 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
 
     try {
       requestScrollToEnd(true);
-      await queueMessage({ conversationId, content });
+      if (image) {
+        await queueMessage({ conversationId, content: content || null, image });
+        setSelectedImage((current) =>
+          current?.image === image ? null : current
+        );
+      } else {
+        await queueMessage({ conversationId, content });
+      }
       setDraft((current) => (current === draftAtSend ? '' : current));
     } catch {
-      setSendError('Unable to save this message. Please try again.');
+      setSendError('Unable to save this message locally. Please try again.');
     } finally {
       setIsSending(false);
     }
   }, [
     conversationId,
     draft,
+    isMediaBusy,
     isSending,
     queueMessage,
     requestScrollToEnd,
+    selectedImage,
     user?.id,
   ]);
 
-  const attachAndSendPhoto = useCallback(async () => {
+  const attachPhoto = useCallback(async () => {
     if (isMediaBusy || isSending) return;
-    if (connectionState !== 'connected') {
-      setSendError(
-        "Can't send photos while offline — try again once you're connected."
-      );
-      return;
-    }
-
     setIsMediaBusy(true);
     setSendError(null);
-    const draftAtSend = draft;
-
     try {
-      let media =
-        mediaRetry?.conversationId === conversationId ? mediaRetry : null;
-      if (!media) {
-        const image = await pickCompressedImage();
-        if (!image) return;
-        const mediaUrl = await uploadImage(image);
-        media = {
-          mediaUrl,
-          clientMessageId: createClientMessageId(),
-          conversationId,
-        };
-        setMediaRetry(media);
+      const image = await pickCompressedImage();
+      if (image && currentConversationIdRef.current === conversationId) {
+        setSelectedImage({ conversationId, image });
       }
-
-      const acknowledgement = await sendMessage({
-        conversationId,
-        content: draftAtSend.trim() || null,
-        mediaUrl: media.mediaUrl,
-        clientMessageId: media.clientMessageId,
-      });
-      if (!acknowledgement.ok) throw new Error(acknowledgement.error);
-
-      requestScrollToEnd(true);
-      setMediaRetry(null);
-      setDraft((current) => (current === draftAtSend ? '' : current));
     } catch (error: unknown) {
       const message =
         error instanceof Error
           ? error.message
-          : 'Unable to send this photo. Please try again.';
-      setSendError(`${message} Tap the photo button to retry.`);
+          : 'Unable to prepare this photo. Please try again.';
+      setSendError(message);
     } finally {
       setIsMediaBusy(false);
     }
-  }, [
-    connectionState,
-    conversationId,
-    draft,
-    isMediaBusy,
-    isSending,
-    mediaRetry,
-    requestScrollToEnd,
-    sendMessage,
-  ]);
+  }, [conversationId, isMediaBusy, isSending]);
 
   const flushPendingScroll = useCallback(() => {
     const requestedScroll = pendingScroll.current;
@@ -645,10 +665,16 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
       <KeyboardStickyView>
         <SafeAreaView edges={['bottom']} style={styles.composerSafeArea}>
           <MessageComposer
+            attachmentUri={
+              selectedImage?.conversationId === conversationId
+                ? selectedImage.image.uri
+                : null
+            }
             connectionState={connectionState}
             isMediaBusy={isMediaBusy || isSending}
             isSending={isSending}
-            onAttach={() => void attachAndSendPhoto()}
+            onAttach={() => void attachPhoto()}
+            onRemoveAttachment={() => setSelectedImage(null)}
             onChangeText={(value) => {
               setDraft(value);
               if (sendError) setSendError(null);
@@ -723,7 +749,11 @@ const createStyles = (c: typeof colors.light) =>
       paddingHorizontal: 18,
       paddingVertical: 12,
     },
-    primaryButtonText: { color: c.bgBase, fontSize: 15, fontWeight: '600' },
+    primaryButtonText: {
+      color: c.onStateAction,
+      fontSize: 15,
+      fontWeight: '600',
+    },
     stateText: {
       color: c.textMuted,
       fontSize: 15,

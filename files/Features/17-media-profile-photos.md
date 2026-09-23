@@ -12,9 +12,9 @@ implementation and testing pass than the recent UI-only features.
 
 Let users set a profile photo and share images in chat, using
 ImageKit as the storage/CDN provider. Images are always referenced
-by URL — never embedded as raw binary data in any API response,
-socket payload, or local cache — matching how the rest of the app
-already handles data.
+by URL in API responses and socket payloads. Pending uploads keep a
+local image file, but AsyncStorage stores only its reference, never
+raw image bytes.
 
 ## Manual setup required from Ankur (before implementation)
 
@@ -40,7 +40,7 @@ already handles data.
    ```
 5. Install new dependencies:
    - In `mobile/`: `npx expo install expo-image-picker
-     expo-image-manipulator`
+expo-image-manipulator expo-file-system`
    - No new backend package is required — the signature ImageKit
      needs is a standard HMAC-SHA1 of `token+expire` using the
      private key, computable with Node's built-in `crypto` module.
@@ -103,28 +103,27 @@ through them) while keeping the private key secure.
 - Video, audio, or file-type attachments — images only for this
   feature
 - Multi-image messages (one image per message for now)
-- Uploading media while offline — see the explicit decision below
 - Editing an already-sent image message, or deleting media
 - Full profile editing (display name change, bio, etc.)
-- Any change to the existing text-only message flow, delivery/read
-  receipts, or offline queue logic for text messages — all of that
-  continues exactly as built
+- Changes to the existing text-message flow or delivery/read receipts;
+  the same offline queue now also carries images without changing text behavior
 
-## Important decision: media sending requires connectivity
+## Updated decision: media sending also works offline
 
-Feature 14's offline queue works because text is small and easy to
-persist locally. Images are not — queuing a multi-megabyte upload
-for later, tracking upload progress across app restarts, and
-reconciling a partially-uploaded file is meaningfully more complex
-than this feature should take on.
-
-**Decision: sending an image while offline is blocked outright**,
-with a clear message (e.g. "Can't send photos while offline — try
-again once you're connected"). Text messages continue to queue and
-send normally regardless of connectivity, unaffected by this
-restriction. This keeps the feature scoped and avoids a much larger,
-riskier addition to the offline-queue system for comparatively
-modest benefit at this stage.
+The original Feature 17 implementation blocked media while offline.
+Real-device testing superseded that decision: selecting a photo now
+compresses it and shows a removable composer preview, but does not
+send it. On Send, the compressed file is copied to durable local
+storage and added to Feature 14's existing AsyncStorage queue with
+its caption, local file reference, and stable `clientMessageId`.
+The optimistic bubble uses the local image and `PENDING` clock.
+On reconnect, the existing ordered flush obtains fresh upload
+credentials, uploads to ImageKit, then sends `mediaUrl` through the
+same idempotent socket event. Upload/send failure leaves the item
+pending and pauses that conversation's flush. Server confirmation
+removes both the queue entry and local file. Text queue behavior is
+unchanged. Native uses `expo-file-system` document storage; web uses
+durable IndexedDB because Expo FileSystem does not support web.
 
 ## Backend Changes
 
@@ -143,11 +142,13 @@ modest benefit at this stage.
 ### `PATCH /api/users/me`
 
 Request body:
+
 ```json
 { "avatarUrl": "string" }
 ```
 
 Rules:
+
 1. Require authentication.
 2. Validate with Zod: non-empty string, and — critically — confirm
    it starts with the configured `IMAGEKIT_URL_ENDPOINT`. Reject
@@ -180,11 +181,13 @@ with the rest of the app.
 ### `message:send` payload
 
 Add an optional field:
+
 ```ts
 { conversationId: string; content: string | null; mediaUrl?: string; clientMessageId?: string }
 ```
 
 Rules:
+
 1. At least one of `content` or `mediaUrl` must be present and
    non-empty — reject a payload with neither (an empty message).
 2. If `mediaUrl` is provided, validate with Zod that it starts with
@@ -204,6 +207,7 @@ Rules:
 ### Image selection and compression
 
 Before any upload (profile photo or chat media):
+
 1. Use `expo-image-picker` to let the user choose from their gallery
    (camera capture is a reasonable addition if it fits naturally,
    not required).
@@ -217,6 +221,7 @@ Before any upload (profile photo or chat media):
 ### Upload helper
 
 Add one shared upload function (e.g. `mobile/lib/media/upload.ts`):
+
 1. Calls `GET /api/media/upload-auth` for fresh credentials.
 2. Uploads the compressed image directly to
    `https://upload.imagekit.io/api/v1/files/upload` using
@@ -232,6 +237,7 @@ this one function rather than duplicating upload logic.
 
 A minimal screen (accessible from the inbox header, e.g. tapping
 the user's own current avatar/initials):
+
 - Shows the current avatar (or initials placeholder) and display
   name (read-only for now).
 - A button to pick/replace the photo: pick → compress → show a
@@ -254,15 +260,14 @@ conversation rows and New Conversation search results.
 1. Add an attachment/image icon (using the existing
    `@expo/vector-icons` convention) beside the text input.
 2. Tapping it opens the image picker. On selection: compress, show
-   an uploading indicator in the composer (Send remains disabled
-   during upload), upload via the shared helper, then send through
-   the existing `message:send` path with `mediaUrl` set (and
-   `content` set to whatever caption text, if any, was also typed).
-3. If the device is offline when the user attempts to attach/send
-   an image, show the blocking message described above rather than
-   attempting the upload at all.
-4. On upload failure (while online), show a clear retry-capable
-   error — do not silently fail or leave the composer stuck.
+   a removable thumbnail, and allow an optional caption. Nothing
+   uploads or sends until the user taps Send.
+3. On Send, persist the compressed photo to durable local storage
+   and enqueue it through Feature 14's queue, even while offline.
+   The flush uploads first and emits `message:send` only with a valid
+   URL. Preserve per-conversation order across text and media.
+4. On upload failure, keep the message pending for the next reconnect
+   or queue-flush opportunity; confirmation deletes the local copy.
 
 ### Chat bubble rendering
 
@@ -339,11 +344,14 @@ Use two real devices/accounts.
    correctly.
 4. Tap an image bubble — the full-screen viewer opens and dismisses
    correctly.
-5. Put A in airplane mode and attempt to send an image — the
-   blocking "can't send photos while offline" message appears; no
-   partial/stuck upload occurs.
-6. Confirm text messages still queue and send normally while A is
-   offline (this feature must not have broken Feature 14).
+5. Select an image while A is offline: it previews before Send, can
+   be removed, and can have a caption. Send creates a local image
+   bubble with a clock; force-close/reopen preserves it. Restore
+   network: it uploads, sends once, reconciles to the server ID,
+   and removes its local file.
+6. Confirm text and image messages queue in per-conversation order;
+   a failed upload pauses later items in that conversation without
+   blocking other conversations.
 7. The conversation list preview shows "📷 Photo" for a
    media-only message's `lastMessage`.
 8. Attempt (via a REST client, not the app) to `PATCH /api/users/me`
@@ -366,6 +374,7 @@ Per `ai-workflow-rules.md`:
 3. Backend, socket-server, and mobile TypeScript/lint/Prettier
    checks pass.
 4. Update `progress-tracker.md`: mark this feature complete, and set
-   **Feature 18 — Authentication direction (Email OTP vs. current
-   password login)** as the next decision point, per the earlier
+   **Authentication direction (Email OTP vs. current password login)**
+   as a separately numbered future decision point (Feature 18 is now
+   the light-theme chat/inbox UI upgrade), per the earlier
    discussion about mobile OTP's real SMS costs.

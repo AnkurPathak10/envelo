@@ -1,6 +1,6 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { colors, radius, spacing } from '@/constants/theme';
+import { messagingColors as colors, radius, spacing } from '@/constants/theme';
 import { type ThemePreference, useAppTheme } from '@/lib/theme/ThemeContext';
 
 const options: { label: string; value: ThemePreference }[] = [
@@ -57,5 +57,5 @@ const createStyles = (c: typeof colors.light) =>
     },
     pressedOption: { opacity: 0.72 },
     selectedLabel: { color: c.onAccent },
-    selectedOption: { backgroundColor: c.accentPrimary },
+    selectedOption: { backgroundColor: c.selectedTheme },
   });
