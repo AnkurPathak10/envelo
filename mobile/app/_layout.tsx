@@ -5,6 +5,8 @@ import {
 } from '@react-navigation/native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import * as SystemUI from 'expo-system-ui';
+import { useEffect } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import {
@@ -62,8 +64,26 @@ export default function RootLayout() {
 
 function ThemedRootLayout() {
   const scheme = useAppColorScheme();
+  const c = colors[scheme];
+  const navigationTheme = {
+    ...(scheme === 'dark' ? DarkTheme : DefaultTheme),
+    colors: {
+      ...(scheme === 'dark' ? DarkTheme.colors : DefaultTheme.colors),
+      background: c.bgBase,
+      border: c.border,
+      card: c.bgBase,
+      notification: c.accentPrimary,
+      primary: c.accentPrimary,
+      text: c.textPrimary,
+    },
+  };
+
+  useEffect(() => {
+    void SystemUI.setBackgroundColorAsync(c.bgBase);
+  }, [c.bgBase]);
+
   return (
-    <ThemeProvider value={scheme === 'dark' ? DarkTheme : DefaultTheme}>
+    <ThemeProvider value={navigationTheme}>
       <AuthProvider>
         <SocketProvider>
           <RootNavigator />

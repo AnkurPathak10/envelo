@@ -96,3 +96,33 @@ export async function getMessageHistory(
   const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : '';
   return apiRequest<MessageHistoryPage>(`${path}${query}`);
 }
+
+export async function searchConversationMessages(
+  conversationId: string,
+  query: string
+): Promise<TextMessage[]> {
+  const path = `/api/conversations/${encodeURIComponent(conversationId)}/messages`;
+  const response = await apiRequest<MessageHistoryPage>(
+    `${path}?query=${encodeURIComponent(query)}`
+  );
+  return response.messages;
+}
+
+export async function clearConversationMessages(
+  conversationId: string
+): Promise<number> {
+  const response = await apiRequest<{ cleared: number }>(
+    `/api/conversations/${encodeURIComponent(conversationId)}/messages`,
+    { method: 'DELETE' }
+  );
+  return response.cleared;
+}
+
+export async function deleteConversation(
+  conversationId: string
+): Promise<void> {
+  await apiRequest<{ deleted: true }>(
+    `/api/conversations/${encodeURIComponent(conversationId)}`,
+    { method: 'DELETE' }
+  );
+}

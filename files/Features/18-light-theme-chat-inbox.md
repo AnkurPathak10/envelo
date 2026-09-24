@@ -18,13 +18,13 @@ This is a mobile presentation change. Keep the current chat, inbox, theme prefer
 
 ## Exact palette and assignments
 
-| Palette name | Hex | Light-mode role on the two target screens |
-| --- | --- | --- |
-| Rosy Taupe | `#D39A86` | Primary action accent: the existing send control, attach/add action icon, new-conversation action, active or selected accents, and loading/progress accent where appropriate. |
-| Cotton Rose | `#E3C4C9` | Softer secondary accent: unread badge fill, subtle separators/borders, and selected theme-toggle fill if that toggle is shown in the inbox. |
-| Soft Blush | `#FEE3E2` | **Outgoing/sent message bubble** background, including the background around captions on sent image messages. |
-| Platinum | `#F1F0F1` | **Incoming/received message bubble** background and the neutral message input surface. Use for other neutral inset surfaces on these screens where the current gray surface belongs. |
-| White | `#FEFFFE` | Base background for the inbox, open chat, header, and composer area. |
+| Palette name | Hex       | Light-mode role on the two target screens                                                                                                                                            |
+| ------------ | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Rosy Taupe   | `#D39A86` | Primary action accent: the existing send control, attach/add action icon, new-conversation action, active or selected accents, and loading/progress accent where appropriate.        |
+| Cotton Rose  | `#E3C4C9` | Softer secondary accent: unread badge fill, subtle separators/borders, and selected theme-toggle fill if that toggle is shown in the inbox.                                          |
+| Soft Blush   | `#FEE3E2` | **Outgoing/sent message bubble** background, including the background around captions on sent image messages.                                                                        |
+| Platinum     | `#F1F0F1` | **Incoming/received message bubble** background and the neutral message input surface. Use for other neutral inset surfaces on these screens where the current gray surface belongs. |
+| White        | `#FEFFFE` | Base background for the inbox, open chat, header, and composer area.                                                                                                                 |
 
 The user confirmed this mapping. The current blue sent-message bubble becomes `#FEE3E2`. The received bubble becomes `#F1F0F1`. The reference's muted rose action color is `#D39A86`; avoid retaining blue action accents on either target screen.
 
@@ -87,3 +87,14 @@ Do not replace semantic error or success colors with a palette color merely to f
 8. Run the existing mobile TypeScript and lint checks (`npx tsc --noEmit`, `npm run lint`) and format only changed code. Preserve any pre-existing uncommitted Feature 17 work.
 
 This file is the implementation brief. Do not mark Feature 18 complete in `files/progress-tracker.md` until the implementation and visual checks are actually finished.
+
+## Later app-wide dark-theme expansion
+
+The original Feature 18 restriction to light-mode chat/inbox colors was superseded by a later explicit request to unify dark mode across the application:
+
+- Dark page and header surfaces use warm charcoal grays (`#242326` base, `#343236` raised surface, and `#4A464A` borders) instead of the earlier near-black/navy palette.
+- Rosy Taupe (`#D39A86`) replaces the default blue accent in both global and messaging themes. React Navigation receives the same tokens so headers, transitions, and framework-controlled accents do not reintroduce blue or black.
+- Dark-mode sent bubbles use the same Soft Blush (`#FEE3E2`) as light mode, with the same dark message text, timestamp, and status ticks. Send, attachment, loading, selected, unread, retry, and profile-photo actions use the rose family with readable foregrounds.
+- Login and signup retain their split composition, deep brand hero, animation, fields, and backend behavior, but their lower panels, inputs, text, and links now follow the selected light/dark theme. Dark auth panels use the shared warm-gray surfaces.
+- Inbox fallback avatars now use the warm palette in both modes and on profile/new-conversation surfaces; user-supplied photos remain unchanged.
+- The dark splash background and runtime root-view background use the same warm charcoal base, preventing black flashes around navigation or startup.

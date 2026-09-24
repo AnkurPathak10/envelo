@@ -26,7 +26,11 @@ import { MessageBubble } from '@/components/chat/message-bubble';
 import { MessageComposer } from '@/components/chat/message-composer';
 import { messagingColors as colors, radius } from '@/constants/theme';
 import { ApiError, isConnectivityError } from '@/lib/api/client';
-import { getMessageHistory, type TextMessage } from '@/lib/api/conversations';
+import {
+  getMessageHistory,
+  searchConversationMessages,
+  type TextMessage,
+} from '@/lib/api/conversations';
 import { useAuth } from '@/lib/auth/AuthContext';
 import { useAppColorScheme } from '@/lib/theme/useAppColorScheme';
 import {
@@ -41,6 +45,7 @@ import {
   updateMessageStatus,
 } from '@/lib/chat/messages';
 import { getPendingMediaPreviewUri } from '@/lib/media/pendingMediaStorage';
+import type { GifResult } from '@/lib/giphy';
 import {
   captureCompressedImage,
   pickCompressedImage,
@@ -53,6 +58,8 @@ import { useSocket, type SocketTextMessage } from '@/lib/socket/SocketContext';
 
 interface ChatScreenProps {
   conversationId: string;
+  isSearchOpen?: boolean;
+  searchQuery?: string;
 }
 
 type InitialHistoryState = 'loading' | 'loaded' | 'error' | 'not-found';
@@ -83,7 +90,11 @@ function isCurrentAppViewVisible(): boolean {
   return AppState.currentState === 'active';
 }
 
-export function ChatScreen({ conversationId }: ChatScreenProps) {
+export function ChatScreen({
+  conversationId,
+  isSearchOpen = false,
+  searchQuery = '',
+}: ChatScreenProps) {
   const { user } = useAuth();
   const isFocused = useIsFocused();
   const { setEnabled: setKeyboardControllerEnabled } = useKeyboardController();
@@ -106,6 +117,9 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [isLoadingEarlier, setIsLoadingEarlier] = useState(false);
   const [earlierError, setEarlierError] = useState<string | null>(null);
+  const [searchResults, setSearchResults] = useState<TextMessage[]>([]);
+  const [isSearchingMessages, setIsSearchingMessages] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [isMediaBusy, setIsMediaBusy] = useState(false);
@@ -473,6 +487,44 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
     ],
     [messages]
   );
+  const trimmedSearchQuery = searchQuery.trim();
+  const displayedMessages = trimmedSearchQuery
+    ? searchResults
+    : renderedMessages;
+
+  useEffect(() => {
+    if (!isSearchOpen || !trimmedSearchQuery) {
+      setSearchResults([]);
+      setSearchError(null);
+      setIsSearchingMessages(false);
+      if (!isSearchOpen) requestScrollToEnd(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    setSearchResults([]);
+    setSearchError(null);
+    setIsSearchingMessages(true);
+    const timer = setTimeout(() => {
+      void searchConversationMessages(conversationId, trimmedSearchQuery)
+        .then((results) => {
+          if (!controller.signal.aborted) setSearchResults(results);
+        })
+        .catch((error: unknown) => {
+          if (!controller.signal.aborted) {
+            setSearchError(historyErrorMessage(error));
+          }
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setIsSearchingMessages(false);
+        });
+    }, 250);
+
+    return () => {
+      controller.abort();
+      clearTimeout(timer);
+    };
+  }, [conversationId, isSearchOpen, requestScrollToEnd, trimmedSearchQuery]);
 
   let latestIncomingMessageId: string | null = null;
   for (let index = renderedMessages.length - 1; index >= 0; index -= 1) {
@@ -647,7 +699,7 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
       const latitude = location.coords.latitude.toFixed(6);
       const longitude = location.coords.longitude.toFixed(6);
       appendSharedText(
-        `📍 ${latitude}, ${longitude}\nhttps://maps.google.com/?q=${latitude},${longitude}`
+        `📍 ${latitude}, ${longitude}\nhttps://www.google.com/maps/search/?api=1&query=${latitude},${longitude}`
       );
     } catch (error: unknown) {
       setSendError(
@@ -684,7 +736,10 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
           ?.number ??
         contact.phoneNumbers?.find((phone) => phone.number)?.number;
       const email = contact.emails?.find((entry) => entry.email)?.email;
-      const details = [phoneNumber ? `📞 ${phoneNumber}` : null, email]
+      const details = [
+        phoneNumber ? `📞 ${phoneNumber}` : null,
+        email ? `✉️ ${email}` : null,
+      ]
         .filter((value): value is string => Boolean(value))
         .join('\n');
       appendSharedText(`👤 ${contact.name}${details ? `\n${details}` : ''}`);
@@ -696,6 +751,35 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
       setIsMediaBusy(false);
     }
   }, [appendSharedText, isMediaBusy, isSending]);
+
+  const sendGif = useCallback(
+    async (gif: GifResult): Promise<void> => {
+      if (!user?.id || isMediaBusy || isSending) return;
+      setIsMediaBusy(true);
+      setSendError(null);
+      try {
+        await queueMessage({
+          conversationId,
+          content: null,
+          remoteMediaUrl: gif.url,
+        });
+        requestScrollToEnd(true);
+      } catch {
+        setSendError('Unable to queue this GIF. Please try again.');
+        throw new Error('Unable to queue this GIF.');
+      } finally {
+        setIsMediaBusy(false);
+      }
+    },
+    [
+      conversationId,
+      isMediaBusy,
+      isSending,
+      queueMessage,
+      requestScrollToEnd,
+      user?.id,
+    ]
+  );
 
   const flushPendingScroll = useCallback(() => {
     const requestedScroll = pendingScroll.current;
@@ -783,20 +867,42 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
       <FlatList
         contentContainerStyle={[
           styles.listContent,
-          renderedMessages.length === 0 && styles.emptyList,
+          displayedMessages.length === 0 && styles.emptyList,
         ]}
-        data={renderedMessages}
+        data={displayedMessages}
         keyboardShouldPersistTaps="handled"
         key={`messages-${conversationId}`}
         keyExtractor={(message) => message.id}
         ListEmptyComponent={
           <View style={styles.emptyState}>
-            <Text style={styles.stateTitle}>No messages yet</Text>
-            <Text style={styles.stateText}>Start the conversation below.</Text>
+            {isSearchingMessages ? (
+              <ActivityIndicator color={c.accentPrimary} />
+            ) : null}
+            <Text style={searchError ? styles.errorText : styles.stateTitle}>
+              {searchError
+                ? searchError
+                : trimmedSearchQuery
+                  ? isSearchingMessages
+                    ? 'Searching messages…'
+                    : 'No matching messages'
+                  : 'No messages yet'}
+            </Text>
+            {!trimmedSearchQuery ? (
+              <Text style={styles.stateText}>
+                Start the conversation below.
+              </Text>
+            ) : null}
           </View>
         }
         ListHeaderComponent={
-          nextCursor ? (
+          trimmedSearchQuery && displayedMessages.length > 0 ? (
+            <View style={styles.searchSummary}>
+              <Text style={styles.searchSummaryText}>
+                {displayedMessages.length}{' '}
+                {displayedMessages.length === 1 ? 'match' : 'matches'}
+              </Text>
+            </View>
+          ) : nextCursor && !isSearchOpen ? (
             <View style={styles.earlierContainer}>
               {earlierError ? (
                 <Text style={styles.earlierError}>{earlierError}</Text>
@@ -825,7 +931,9 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
             accessibilityElementsHidden
             importantForAccessibility="no-hide-descendants"
             pointerEvents="none"
-            style={{ height: composerHeight + keyboardHeight + 16 }}
+            style={{
+              height: isSearchOpen ? 16 : composerHeight + keyboardHeight + 16,
+            }}
           />
         }
         maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
@@ -844,58 +952,61 @@ export function ChatScreen({ conversationId }: ChatScreenProps) {
           !isInitialPositionReady && styles.positioningContent,
         ]}
       />
-      <KeyboardStickyView
-        enabled={isFocused && Platform.OS !== 'web'}
-        key={`composer-${conversationId}`}
-        onLayout={(event) => {
-          const nextHeight = Math.ceil(event.nativeEvent.layout.height);
-          setComposerHeight((current) =>
-            current === nextHeight ? current : nextHeight
-          );
-          if (!hasMeasuredComposerForConversation.current) {
-            hasMeasuredComposerForConversation.current = true;
-            requestScrollToEnd(false);
-            requestAnimationFrame(flushPendingScroll);
-          }
-        }}
-        pointerEvents={isInitialPositionReady ? 'box-none' : 'none'}
-        style={[
-          styles.composerDock,
-          !isInitialPositionReady && styles.positioningContent,
-        ]}
-      >
-        <SafeAreaView edges={['bottom']} style={styles.composerSafeArea}>
-          <MessageComposer
-            attachmentUri={
-              selectedImage?.conversationId === conversationId
-                ? selectedImage.image.uri
-                : null
+      {!isSearchOpen ? (
+        <KeyboardStickyView
+          enabled={isFocused && Platform.OS !== 'web'}
+          key={`composer-${conversationId}`}
+          onLayout={(event) => {
+            const nextHeight = Math.ceil(event.nativeEvent.layout.height);
+            setComposerHeight((current) =>
+              current === nextHeight ? current : nextHeight
+            );
+            if (!hasMeasuredComposerForConversation.current) {
+              hasMeasuredComposerForConversation.current = true;
+              requestScrollToEnd(false);
+              requestAnimationFrame(flushPendingScroll);
             }
-            connectionState={connectionState}
-            isMediaBusy={isMediaBusy || isSending}
-            isSending={isSending}
-            onAttach={attachPhoto}
-            onCamera={capturePhoto}
-            onContact={shareContact}
-            onLocation={shareCurrentLocation}
-            onRemoveAttachment={() => setSelectedImage(null)}
-            onChangeText={(value) => {
-              setDraft(value);
-              if (sendError) setSendError(null);
-            }}
-            onRetryConnection={retryConnection}
-            onSend={() => void sendDraft()}
-            onSelectGalleryImage={selectGalleryImage}
-            onUnavailableAction={(label) =>
-              setSendError(
-                `${label} needs the next Feature 19 message-type milestone.`
-              )
-            }
-            sendError={sendError}
-            value={draft}
-          />
-        </SafeAreaView>
-      </KeyboardStickyView>
+          }}
+          pointerEvents={isInitialPositionReady ? 'box-none' : 'none'}
+          style={[
+            styles.composerDock,
+            !isInitialPositionReady && styles.positioningContent,
+          ]}
+        >
+          <SafeAreaView edges={['bottom']} style={styles.composerSafeArea}>
+            <MessageComposer
+              attachmentUri={
+                selectedImage?.conversationId === conversationId
+                  ? selectedImage.image.uri
+                  : null
+              }
+              connectionState={connectionState}
+              isMediaBusy={isMediaBusy || isSending}
+              isSending={isSending}
+              onAttach={attachPhoto}
+              onCamera={capturePhoto}
+              onContact={shareContact}
+              onLocation={shareCurrentLocation}
+              onRemoveAttachment={() => setSelectedImage(null)}
+              onChangeText={(value) => {
+                setDraft(value);
+                if (sendError) setSendError(null);
+              }}
+              onRetryConnection={retryConnection}
+              onSend={() => void sendDraft()}
+              onSelectGif={sendGif}
+              onSelectGalleryImage={selectGalleryImage}
+              onUnavailableAction={(label) =>
+                setSendError(
+                  `${label} needs the next Feature 19 message-type milestone.`
+                )
+              }
+              sendError={sendError}
+              value={draft}
+            />
+          </SafeAreaView>
+        </KeyboardStickyView>
+      ) : null}
       {!isInitialPositionReady ? (
         <View pointerEvents="none" style={styles.positioningOverlay}>
           <ActivityIndicator color={c.accentPrimary} size="large" />
@@ -979,6 +1090,8 @@ const createStyles = (c: typeof colors.light) =>
       fontSize: 15,
       fontWeight: '600',
     },
+    searchSummary: { alignItems: 'center', paddingVertical: 10 },
+    searchSummaryText: { color: c.textMuted, fontSize: 13 },
     positioningContent: { opacity: 0 },
     positioningOverlay: {
       alignItems: 'center',

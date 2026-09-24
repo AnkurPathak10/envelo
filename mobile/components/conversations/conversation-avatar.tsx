@@ -2,17 +2,6 @@ import { useEffect, useState } from 'react';
 import { Image, StyleSheet, Text, View } from 'react-native';
 
 import { colors, messagingAvatarColors, spacing } from '@/constants/theme';
-import { useAppColorScheme } from '@/lib/theme/useAppColorScheme';
-
-const avatarColors = [
-  '#2563EB',
-  '#7C3AED',
-  '#DB2777',
-  '#DC2626',
-  '#D97706',
-  '#059669',
-  '#0891B2',
-] as const;
 
 type ConversationAvatarProps = {
   avatarUrl?: string | null;
@@ -42,11 +31,8 @@ export function ConversationAvatar({
   name,
   size = spacing.xl + spacing.md,
   userId,
-  variant = 'default',
 }: ConversationAvatarProps) {
   const [imageFailed, setImageFailed] = useState(false);
-  const scheme = useAppColorScheme();
-  const useWarmPalette = variant === 'inbox' && scheme === 'light';
 
   useEffect(() => setImageFailed(false), [avatarUrl]);
 
@@ -57,10 +43,7 @@ export function ConversationAvatar({
       style={[
         styles.avatar,
         {
-          backgroundColor: getAvatarColor(
-            userId,
-            useWarmPalette ? messagingAvatarColors : avatarColors
-          ),
+          backgroundColor: getAvatarColor(userId, messagingAvatarColors),
           borderRadius: size / 2,
           height: size,
           width: size,
@@ -79,7 +62,7 @@ export function ConversationAvatar({
           style={[
             styles.initials,
             { fontSize: Math.max(16, size * 0.35) },
-            useWarmPalette && { color: colors.light.textPrimary },
+            { color: colors.light.textPrimary },
           ]}
         >
           {getInitials(name)}

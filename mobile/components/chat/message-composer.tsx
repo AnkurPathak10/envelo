@@ -7,7 +7,6 @@ import {
   Keyboard,
   Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -16,6 +15,8 @@ import {
 
 import { messagingColors as colors } from '@/constants/theme';
 import { AttachmentGalleryPanel } from '@/components/chat/attachment-gallery-panel';
+import { ExpressionPicker } from '@/components/chat/expression-picker';
+import type { GifResult } from '@/lib/giphy';
 import type { ImageSource } from '@/lib/media/upload';
 import type { SocketConnectionState } from '@/lib/socket/SocketContext';
 import { useAppColorScheme } from '@/lib/theme/useAppColorScheme';
@@ -33,6 +34,7 @@ interface MessageComposerProps {
   onChangeText: (value: string) => void;
   onRetryConnection: () => void;
   onSend: () => void;
+  onSelectGif: (gif: GifResult) => Promise<void>;
   onSelectGalleryImage: (source: ImageSource) => Promise<void>;
   onUnavailableAction: (label: string) => void;
   sendError: string | null;
@@ -40,40 +42,6 @@ interface MessageComposerProps {
 }
 
 type AccessoryPanel = 'emoji' | 'attachments' | null;
-type ExpressionTab = 'emoji' | 'gif' | 'stickers';
-
-const emojis = [
-  '😀',
-  '😂',
-  '🥰',
-  '😍',
-  '😊',
-  '😭',
-  '😅',
-  '🤔',
-  '😎',
-  '🥳',
-  '😴',
-  '😡',
-  '👍',
-  '👏',
-  '🙏',
-  '❤️',
-  '🔥',
-  '✨',
-  '🎉',
-  '💯',
-  '👀',
-  '🤝',
-  '💬',
-  '📸',
-] as const;
-
-const expressionTabs: { label: string; value: ExpressionTab }[] = [
-  { label: 'Emoji', value: 'emoji' },
-  { label: 'GIFs', value: 'gif' },
-  { label: 'Stickers', value: 'stickers' },
-];
 
 function getConnectionNotice(
   connectionState: SocketConnectionState
@@ -101,13 +69,13 @@ export function MessageComposer({
   onChangeText,
   onRetryConnection,
   onSend,
+  onSelectGif,
   onSelectGalleryImage,
   onUnavailableAction,
   sendError,
   value,
 }: MessageComposerProps) {
   const [accessoryPanel, setAccessoryPanel] = useState<AccessoryPanel>(null);
-  const [expressionTab, setExpressionTab] = useState<ExpressionTab>('emoji');
   const scheme = useAppColorScheme();
   const c = colors[scheme];
   const styles = createStyles(c);
@@ -133,7 +101,7 @@ export function MessageComposer({
       <LinearGradient
         colors={
           scheme === 'dark'
-            ? (['rgba(11, 15, 20, 0)', 'rgba(11, 15, 20, 0.96)'] as const)
+            ? (['rgba(36, 35, 38, 0)', 'rgba(36, 35, 38, 0.96)'] as const)
             : (['rgba(254, 255, 254, 0)', 'rgba(254, 255, 254, 0.98)'] as const)
         }
         pointerEvents="none"
@@ -165,58 +133,13 @@ export function MessageComposer({
 
       {accessoryPanel === 'emoji' ? (
         <View style={styles.accessoryPanel}>
-          <View style={styles.expressionTabs}>
-            {expressionTabs.map((tab) => (
-              <Pressable
-                accessibilityRole="tab"
-                accessibilityState={{ selected: expressionTab === tab.value }}
-                key={tab.value}
-                onPress={() => setExpressionTab(tab.value)}
-                style={[
-                  styles.expressionTab,
-                  expressionTab === tab.value && styles.expressionTabSelected,
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.expressionTabText,
-                    expressionTab === tab.value &&
-                      styles.expressionTabTextSelected,
-                  ]}
-                >
-                  {tab.label}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-          {expressionTab === 'emoji' ? (
-            <ScrollView
-              contentContainerStyle={styles.emojiGrid}
-              keyboardShouldPersistTaps="handled"
-            >
-              {emojis.map((emoji) => (
-                <Pressable
-                  accessibilityLabel={`Insert ${emoji}`}
-                  accessibilityRole="button"
-                  key={emoji}
-                  onPress={() => onChangeText(`${value}${emoji}`)}
-                  style={({ pressed }) => [
-                    styles.emojiButton,
-                    pressed && styles.emojiButtonPressed,
-                  ]}
-                >
-                  <Text style={styles.emoji}>{emoji}</Text>
-                </Pressable>
-              ))}
-            </ScrollView>
-          ) : (
-            <View style={styles.pendingExpression}>
-              <Text style={styles.pendingExpressionText}>
-                {expressionTab === 'gif' ? 'GIFs' : 'Stickers'} need a media
-                provider before they can be sent safely.
-              </Text>
-            </View>
-          )}
+          <ExpressionPicker
+            onInsertEmoji={(emoji) => onChangeText(`${value}${emoji}`)}
+            onSelectGif={async (gif) => {
+              await onSelectGif(gif);
+              setAccessoryPanel(null);
+            }}
+          />
         </View>
       ) : null}
 
@@ -277,7 +200,7 @@ export function MessageComposer({
       >
         <View style={styles.composerTint}>
           <Pressable
-            accessibilityLabel="Open emoji, GIF, and sticker picker"
+            accessibilityLabel="Open emoji and GIF picker"
             accessibilityRole="button"
             onPress={() => togglePanel('emoji')}
             style={({ pressed }) => [
@@ -419,21 +342,6 @@ const createStyles = (c: typeof colors.light) =>
       paddingHorizontal: 8,
       paddingTop: 6,
     },
-    emoji: { fontSize: 27 },
-    emojiButton: {
-      alignItems: 'center',
-      borderRadius: 12,
-      height: 42,
-      justifyContent: 'center',
-      width: '16.6667%',
-    },
-    emojiButtonPressed: { backgroundColor: c.bgSurface },
-    emojiGrid: {
-      flexDirection: 'row',
-      flexWrap: 'wrap',
-      paddingBottom: 8,
-      paddingHorizontal: 8,
-    },
     errorPill: {
       alignSelf: 'center',
       backgroundColor: c.bgBase,
@@ -446,15 +354,6 @@ const createStyles = (c: typeof colors.light) =>
       paddingVertical: 6,
     },
     errorText: { color: c.error, fontSize: 12, textAlign: 'center' },
-    expressionTab: {
-      borderRadius: 999,
-      paddingHorizontal: 14,
-      paddingVertical: 7,
-    },
-    expressionTabSelected: { backgroundColor: c.bgSurface },
-    expressionTabText: { color: c.textMuted, fontSize: 13 },
-    expressionTabTextSelected: { color: c.textPrimary, fontWeight: '600' },
-    expressionTabs: { flexDirection: 'row', gap: 4, padding: 8 },
     iconButton: {
       alignItems: 'center',
       borderRadius: 22,
@@ -487,18 +386,6 @@ const createStyles = (c: typeof colors.light) =>
       paddingVertical: 6,
     },
     noticePressed: { opacity: 0.68 },
-    pendingExpression: {
-      alignItems: 'center',
-      justifyContent: 'center',
-      minHeight: 112,
-      padding: 18,
-    },
-    pendingExpressionText: {
-      color: c.textMuted,
-      fontSize: 13,
-      lineHeight: 19,
-      textAlign: 'center',
-    },
     primaryAction: {
       alignItems: 'center',
       backgroundColor: c.accentPrimary,

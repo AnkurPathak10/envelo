@@ -1,6 +1,9 @@
 import type { MessageStatus, TextMessage } from '@/lib/api/conversations';
 import type { PendingMessage } from '@/lib/offline/pendingMessagesStore';
-import { isPendingMediaMessage } from '@/lib/offline/pendingMessagesStore';
+import {
+  isPendingMediaMessage,
+  isPendingRemoteMediaMessage,
+} from '@/lib/offline/pendingMessagesStore';
 
 export type LocalMessageStatus = MessageStatus | 'PENDING';
 
@@ -98,7 +101,9 @@ export function toPendingTextMessage(
     content: message.content,
     mediaUrl: isPendingMediaMessage(message)
       ? (previewUri ?? message.mediaLocalUri)
-      : null,
+      : isPendingRemoteMediaMessage(message)
+        ? message.mediaUrl
+        : null,
     createdAt: message.createdAt,
     status: 'PENDING',
   };

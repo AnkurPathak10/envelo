@@ -426,3 +426,13 @@ Feature 09 is complete only when:
    `mobile/`.
 8. `files/progress-tracker.md` is updated after implementation, including the
    exact manual device tests completed and any remaining environment issue.
+
+## Later chat-header, search, and lifecycle expansion
+
+A later explicit UI request supersedes the original Feature 09 exclusions for chat search and conversation deletion:
+
+- The conversation route owns one opaque custom header so the transition fix remains intact. Its row is Back, the other participant's circular avatar, the participant name, and a right-aligned three-dot menu. Name/avatar route parameters are presentation hints only; authorization continues to use the authenticated participant and server-owned conversation ID.
+- The menu contains Search, Clear chat, and Delete chat. Search opens a rounded field below the header, debounces the query, and calls the authenticated history endpoint. The server performs case-insensitive message-content search, caps input at 100 characters and results at 100, and returns only the existing safe message shape.
+- Search mode replaces the normal message list with chronological matches and hides the composer while the search keyboard is active. Closing search restores the already-loaded conversation and newest-message positioning.
+- Clear chat and Delete chat always show destructive confirmations. With the current shared direct-conversation data model, both operations intentionally affect both participants: Clear deletes all messages but retains the conversation, while Delete removes the conversation and its cascaded messages. The confirmation copy states this before any request is made.
+- Both mutation endpoints verify membership before writing. On success the mobile client removes cached history and queued offline items/media for that conversation; Clear remounts clean history and Delete returns to the inbox. A future per-participant archive model can replace the shared semantics without changing the header UI.

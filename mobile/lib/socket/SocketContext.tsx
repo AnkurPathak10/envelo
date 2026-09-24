@@ -24,7 +24,9 @@ import {
   createClientMessageId,
   getPendingMessages,
   removePendingMessage,
+  removePendingMessagesForConversation,
   isPendingMediaMessage,
+  isPendingRemoteMediaMessage,
   type PendingMessage,
 } from '@/lib/offline/pendingMessagesStore';
 
@@ -87,7 +89,14 @@ interface SocketContextValue {
     payload:
       | { conversationId: string; content: string; image?: never }
       | { conversationId: string; content: string | null; image: PreparedImage }
+      | {
+          conversationId: string;
+          content: null;
+          remoteMediaUrl: string;
+          image?: never;
+        }
   ) => Promise<PendingMessage>;
+  discardConversationQueue: (conversationId: string) => Promise<void>;
   retryConnection: () => void;
   sendMessage: (
     payload: MessageSendPayload
@@ -490,7 +499,9 @@ export function SocketProvider({ children }: PropsWithChildren) {
                     },
                     true
                   )
-                : undefined;
+                : isPendingRemoteMediaMessage(pendingMessage)
+                  ? pendingMessage.mediaUrl
+                  : undefined;
               if (
                 currentUserIdRef.current !== senderId ||
                 socketRef.current !== flushSocket ||
@@ -541,6 +552,12 @@ export function SocketProvider({ children }: PropsWithChildren) {
             content: string | null;
             image: PreparedImage;
           }
+        | {
+            conversationId: string;
+            content: null;
+            remoteMediaUrl: string;
+            image?: never;
+          }
     ): Promise<PendingMessage> => {
       if (!user?.id)
         throw new Error('Cannot queue a message while signed out.');
@@ -578,6 +595,13 @@ export function SocketProvider({ children }: PropsWithChildren) {
           mediaFileName: payload.image.fileName,
           mediaMimeType: payload.image.mimeType,
         };
+      } else if ('remoteMediaUrl' in payload) {
+        pendingMessage = {
+          ...common,
+          kind: 'remote-media',
+          content: null,
+          mediaUrl: payload.remoteMediaUrl,
+        };
       } else {
         pendingMessage = { ...common, kind: 'text', content: payload.content };
       }
@@ -614,6 +638,32 @@ export function SocketProvider({ children }: PropsWithChildren) {
         pendingQueueFlushRef.current();
       }
       return pendingMessage;
+    },
+    [user?.id]
+  );
+
+  const discardConversationQueue = useCallback(
+    async (conversationId: string): Promise<void> => {
+      if (!user?.id) return;
+      const senderId = user.id;
+      pendingMutationRevisionRef.current += 1;
+      const removed = await removePendingMessagesForConversation(
+        senderId,
+        conversationId
+      );
+      await Promise.all(
+        removed
+          .filter(isPendingMediaMessage)
+          .map((message) =>
+            deletePendingMedia(senderId, message.clientMessageId).catch(
+              () => undefined
+            )
+          )
+      );
+      if (currentUserIdRef.current !== senderId) return;
+      setPendingMessages((current) =>
+        current.filter((message) => message.conversationId !== conversationId)
+      );
     },
     [user?.id]
   );
@@ -718,6 +768,7 @@ export function SocketProvider({ children }: PropsWithChildren) {
       connectionEpoch,
       pendingMessages,
       queueMessage,
+      discardConversationQueue,
       acknowledgeDeliveredMessages,
       markConversationRead,
       retryConnection,
@@ -730,6 +781,7 @@ export function SocketProvider({ children }: PropsWithChildren) {
       connectionState,
       pendingMessages,
       queueMessage,
+      discardConversationQueue,
       acknowledgeDeliveredMessages,
       markConversationRead,
       retryConnection,

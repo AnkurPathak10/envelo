@@ -1,12 +1,7 @@
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import { Image } from 'expo-image';
 import { useEffect, useState } from 'react';
-import {
-  ActivityIndicator,
-  Image,
-  Modal,
-  Pressable,
-  StyleSheet,
-} from 'react-native';
+import { ActivityIndicator, Modal, Pressable, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { colors, spacing } from '@/constants/theme';
@@ -52,9 +47,10 @@ export function ImageViewerModal({
             />
           ) : null}
           <Image
+            autoplay
+            contentFit="contain"
             onLoadEnd={() => setIsLoading(false)}
-            resizeMode="contain"
-            source={{ uri: imageUrl }}
+            source={imageUrl}
             style={styles.image}
           />
         </Pressable>

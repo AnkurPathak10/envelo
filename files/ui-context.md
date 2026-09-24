@@ -5,7 +5,7 @@
 Both light and dark mode are supported, following the device's
 system appearance setting (not a manual in-app toggle, unless
 Ankur decides to add one later). Chat-app layout: chat list screen
-+ conversation screen.
+and conversation screen.
 
 ## Colors
 
@@ -14,34 +14,35 @@ Color tokens as plain JS constants (React Native has no CSS engine
 here). All components should import these from
 `mobile/constants/theme.ts` rather than hardcoding hex values.
 
-| Role            | Light      | Dark       |
-| ---------------- | ---------- | ---------- |
-| Page background   | `#FFFFFF`  | `#0B0F14`  |
-| Surface            | `#F5F7FA`  | `#151A21`  |
-| Primary text        | `#11181C`  | `#F5F7FA`  |
-| Muted text           | `#5B6572`  | `#8A93A2`  |
-| Primary accent        | `#2F80ED`  | `#2F80ED`  |
-| Border                  | `#E2E6EA`  | `#242B33`  |
-| Error                    | `#D93036`  | `#E5484D`  |
-| Success                   | `#1F9D5C`  | `#30A46C`  |
+| Role            | Light     | Dark      |
+| --------------- | --------- | --------- |
+| Page background | `#FFFFFF` | `#242326` |
+| Surface         | `#F5F7FA` | `#343236` |
+| Primary text    | `#11181C` | `#F7F2F0` |
+| Muted text      | `#5B6572` | `#B8AEAB` |
+| Primary accent  | `#D39A86` | `#D39A86` |
+| Border          | `#E2E6EA` | `#4A464A` |
+| Error           | `#D93036` | `#E5484D` |
+| Success         | `#1F9D5C` | `#30A46C` |
 
-(Light-mode values above are a reasonable first pass to match the
-dark palette's feel — revisit if they don't look right in practice.)
+Dark mode uses a warm charcoal-gray foundation rather than pure black.
+The brand accent is Rosy Taupe in both modes; default framework blue is
+not part of the application palette.
 
 ## Typography
 
-| Role      | Font          | Notes                          |
-| --------- | ------------- | ------------------------------- |
+| Role      | Font                                             | Notes                                                  |
+| --------- | ------------------------------------------------ | ------------------------------------------------------ |
 | UI text   | System default (San Francisco / Roboto via Expo) | Avoid custom font loading for v1 to keep things simple |
-| Code/mono | Not needed    | No code display in-app          |
+| Code/mono | Not needed                                       | No code display in-app                                 |
 
 ## Border Radius
 
-| Context           | Value    |
-| ------------------ | -------- |
-| Inline / small UI  | 8px      |
-| Cards / bubbles    | 16px     |
-| Modals / sheets    | 20px     |
+| Context           | Value |
+| ----------------- | ----- |
+| Inline / small UI | 8px   |
+| Cards / bubbles   | 16px  |
+| Modals / sheets   | 20px  |
 
 ## Component Library
 

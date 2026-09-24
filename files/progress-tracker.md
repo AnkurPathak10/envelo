@@ -8,10 +8,26 @@ Update this file after every meaningful implementation change.
 
 ## Current Goal
 
+- Add a GIPHY development key to `mobile/.env`, then complete real-device validation of the new chat header, message search, clear/delete confirmations, full emoji catalog, and animated GIF send/offline flow.
+- Verify the app-wide warm-gray/rose dark theme on a real device across authentication, conversations, chat, and profile-photo update flows.
 - Verify Feature 18's light-theme chat and inbox colour placement on a real device; see the UI Upgrades section below.
 - Complete Feature 17's ten-case two-device verification checklist, including ImageKit dashboard compression/file-type checks and the offline text-message regression test
 
 ## UI Upgrades
+
+- Chat header, search, and expression upgrade — implemented; GIPHY key and real-device acceptance pending.
+  - Replaced the title-only native chat header with an opaque custom row containing Back, the other participant's profile photo, name, and a three-dot menu. Inbox and newly created conversation navigation now pass the participant ID/avatar as display-only route state.
+  - Added authenticated, case-insensitive message search with a rounded header search field, 250 ms client debounce, 100-character query cap, chronological results, and a 100-result server limit. Search mode hides the composer and restores the existing conversation when closed.
+  - Added confirmed Clear chat and Delete chat actions. The current shared direct-chat schema means the confirmations explicitly state that these operations affect both people; both APIs enforce membership, and successful actions discard cached history plus queued offline media/messages.
+  - Replaced the 24 hardcoded emoji with the maintained Unicode 15 catalog from `@emoji-mart/data`, including all categories, keyword/name search, virtualized rendering, and accessible draft insertion. Stickers remain deferred.
+  - Integrated GIPHY Trending/Search with PG filtering, visible attribution, an environment-supplied client key, animated `expo-image` rendering, a provider badge, durable remote-media queueing, and an exact HTTPS GIPHY CDN allowlist on the socket server. No provider key is committed; `mobile/.env.example` documents `EXPO_PUBLIC_GIPHY_API_KEY`.
+  - Automated verification passed: mobile/backend/socket TypeScript, Expo lint, backend production build, socket production build, Expo public-config resolution, static web export, and Android production bundle export. Real-device interaction checks remain pending.
+
+- App-wide warm-gray dark theme — implemented; real-device visual acceptance pending.
+  - Replaced the near-black/navy dark foundation with warm charcoal gray (`#242326` base, `#343236` surface, `#4A464A` border) and replaced the remaining shared blue accent with the exact Rosy Taupe (`#D39A86`). React Navigation and the runtime system root now receive the same palette, and the dark splash no longer flashes black.
+  - Dark chat now matches light chat's brand roles: Soft Blush (`#FEE3E2`) outgoing bubbles with dark text/timestamps/ticks, Rosy Taupe send and attachment actions, Cotton Rose unread/selected states, and gray incoming/composer surfaces.
+  - Login and signup keep their existing split hero, animation, fields, and authentication behavior but now use gray panels/inputs and rose links in dark mode. Conversations, new-conversation, profile-photo update, headers, loading/retry states, and fallback avatars inherit the same gray/rose system; user photos and semantic error/success colors remain unchanged.
+  - Verification passed: mobile TypeScript, Expo lint, Expo public-config resolution, static web export, Android bundle export, and repository whitespace checks.
 
 - Feature 19: Floating Rich Message Composer — Milestone 1 implemented; typed rich-message milestones remain in progress.
   - Replaced the full-width bordered footer with a floating, fully rounded translucent composer and removed its top separator. Chat list padding now allows messages to scroll behind the composer while keeping the newest item reachable.
@@ -28,18 +44,22 @@ Update this file after every meaningful implementation change.
   - Latest-message clearance follow-up: replaced the list's bottom padding with a measured footer spacer and added a post-measurement anchor pass. The footer is genuine scrollable content, so Android `scrollToEnd()` now opens with the newest bubble fully above the floating composer instead of placing it underneath the glass controls.
   - Smooth-open follow-up: the initial list and composer now measure and complete their non-animated newest-message positioning behind a neutral loading surface. The chat is revealed only after that anchor pass finishes, eliminating the visible middle-of-history-to-bottom swipe during conversation opening.
   - Keyboard-open regression repair: the full-viewport avoiding view did not move the absolute composer on the tested Android device, so the composer again uses Keyboard Controller's dedicated `KeyboardStickyView`. Controller show/hide events now add the live keyboard height to the measured footer spacer; the resulting bottom anchor clears the keyboard and composer together, keeping the newest bubble fully above the input.
+  - Location/contact link-card follow-up: installed the Expo SDK 54-compatible `react-native-maps` package and upgraded the exact Envelo compatibility payloads at render time. Locations now show a pinned native map preview (with a web fallback) and the whole card opens the coordinate in Google Maps; shared phone numbers now render as accessible underlined links that open the device dialer. Earlier `maps.google.com/?q=` messages are supported, ordinary text is never auto-converted, and the stored/socket payload remains readable text until Milestone 2 adds typed metadata.
+  - Link-card verification passed: mobile TypeScript, Expo lint, Expo public config, SDK dependency compatibility, static web export, Android bundle export, and repository whitespace checks.
+  - Conversation reveal and bubble-metadata correction: disabled the conversation route's native push animation so the inbox no longer ghosts through while a chat opens. Plain text and image-caption bubbles now append time/status as inline text, keeping short content on one line and wrapping the metadata unit only when space runs out; media-only and rich cards retain their separate metadata row.
+  - Conversation reveal/metadata verification passed: mobile TypeScript, Expo lint, Android bundle export, and repository whitespace checks.
 
 - Authentication UI refresh:
-  - Rebuilt login and signup as one fixed split design in every system theme: a deep brand-rose (`#8F5148`) upper section and rounded light form panel, with decorative tonal shapes and Envelo branding.
+  - Rebuilt login and signup as one split design with a deep brand upper section, animated illustration, and rounded theme-aware form panel with Envelo branding.
   - Kept the existing email/password and display-name fields, validation, links, submission states, and authentication calls. No social-login or reference-only controls were added.
-  - Primary buttons use the exact requested `#D39A86`; inputs use the existing light messaging neutrals. Both screens scroll with the keyboard and no longer read from the Light/Dark/System preference.
+  - Primary buttons use the exact requested `#D39A86`. Both screens scroll with the keyboard; a later dark-theme expansion made their panels, inputs, text, and links follow the effective Light/Dark/System preference without changing the layout or backend behavior.
   - Browser visual checks passed for both routes; mobile TypeScript and lint checks are recorded after implementation.
 
 - Feature 18: Light Theme Colors for Chat and Conversations — implementation finished; real-device visual acceptance pending.
   - Added scoped light-mode messaging tokens using the exact supplied palette: Rosy Taupe actions (`#D39A86`), Cotton Rose badges/borders/selected theme toggle (`#E3C4C9`), Soft Blush outgoing bubbles (`#FEE3E2`), Platinum incoming bubbles/input (`#F1F0F1`), and White chat/inbox/header/composer backgrounds (`#FEFFFE`).
   - Applied these roles to text, pending, and captioned media bubbles, composer controls, conversation rows, empty/error/loading/offline states, and the conversation header. Filled light controls and badges use dark foregrounds; timestamps and status ticks remain legible.
   - Inbox initials avatars now choose deterministically from the warm palette. Photos are unchanged; the shared avatar's default appearance remains in profile and new-conversation screens.
-  - Existing dark colors, Light/Dark/System selection, screen layout, media preview/offline queue, messaging, and keyboard behavior are preserved. Login, signup, profile, and new-conversation retain their existing palettes.
+  - A later app-wide expansion superseded the original dark-palette preservation constraint; Light/Dark/System selection, screen layout, media preview/offline queue, messaging, and keyboard behavior remain preserved while all screens now share the warm gray/rose dark system.
   - Validation: mobile TypeScript and Expo lint pass; changed code was formatted with Prettier and the repository whitespace check passes. No running authenticated preview was available for visual inspection.
   - Verify light-mode colour placement on a real device against the supplied references, then switch between Dark and System before marking this UI upgrade complete.
 

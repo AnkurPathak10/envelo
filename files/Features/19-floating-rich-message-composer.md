@@ -16,7 +16,7 @@ This feature also defines the safe implementation path for emoji, GIF, sticker, 
 - Preserve the existing keyboard-controller integration, offline text/photo queue, image compression, preview, removal, optional caption, and send behavior.
 - Add an emoji panel that inserts Unicode emoji into the current draft without sending it immediately.
 - Move the existing gallery/photo action into a compact attachment menu.
-- Show the intended File, Location, and Contact destinations in that menu. Until typed cards exist, Location and Contact may only add an explicit, readable text draft that the user reviews and sends; they must not masquerade as another media type. File remains disabled.
+- Show the intended File, Location, and Contact destinations in that menu. Until typed persistence exists, Location and Contact add an explicit, readable text draft that the user reviews and sends. After delivery, only these strictly recognized compatibility formats are enhanced into a linked map or contact card; the underlying payload remains readable text and does not masquerade as another media type. File remains disabled.
 
 ## Milestone 2 — typed non-image attachments
 
@@ -61,7 +61,7 @@ Required work:
 3. Emoji selection updates the draft, and the icon changes from microphone to Send as soon as draft text or a photo exists.
 4. Send continues to queue text and compressed photos through the existing Feature 14/17 path. Empty drafts cannot be sent.
 5. The attachment menu opens from the paperclip and Gallery continues to show the existing removable preview instead of sending immediately.
-6. File, Voice, GIF, and Sticker controls are enabled only after their typed persistence, validation, offline queue, and renderer milestones are complete. Location and Contact may create transparent text drafts as an interim compatibility path; structured cards still require Milestone 2.
+6. File, Voice, GIF, and Sticker controls are enabled only after their typed persistence, validation, offline queue, and renderer milestones are complete. Location and Contact may create transparent text drafts as an interim compatibility path. Their strict compatibility payloads render as linked cards, while first-class typed metadata and arbitrary structured cards still require Milestone 2.
 7. Initial latest-message positioning, Load earlier messages, Android keyboard movement, pending ticks, status reconciliation, image captions, and offline recovery do not regress.
 8. Run mobile TypeScript, Expo lint, web export, and repository whitespace checks. Complete real-device Android visual, keyboard, emoji, attachment, offline, and accessibility testing before marking the feature complete.
 
@@ -101,7 +101,7 @@ The corrected implementation:
 - Keeps the composer absolutely overlaid for the glass effect, measures its actual rendered height, and uses that measurement as the list's bottom content inset. Initial `scrollToEnd` therefore places the newest bubble fully above the capsule and microphone instead of behind them.
 - Extends the theme-aware gradient through the bottom safe-area region so no clear strip remains between the fade and the bottom edge.
 - Catches media-library permission/runtime failures. Assets are de-duplicated by ID before rendering, preventing duplicate React keys. When Android Expo Go cannot expose the embedded recent-photo grid, the sheet remains usable through Camera and ImagePicker's system-gallery fallback instead of throwing an unhandled promise rejection.
-- Requests camera, system-gallery, foreground-location, and Android contact permissions only after their corresponding action is tapped. Location inserts coordinates plus a maps link into the visible draft; Contact opens the native single-contact picker and inserts only the selected contact's name and first available phone/email into the visible draft. Neither action sends automatically, uploads the address book, nor enables background location. Typed location/contact cards remain Milestone 2 work.
+- Requests camera, system-gallery, foreground-location, and Android contact permissions only after their corresponding action is tapped. Location inserts coordinates plus a Google Maps link into the visible draft; Contact opens the native single-contact picker and inserts only the selected contact's name and first available phone/email into the visible draft. Neither action sends automatically, uploads the address book, nor enables background location. First-class typed location/contact persistence remains Milestone 2 work.
 - Registers SDK 54's `expo-location` and `expo-contacts` config plugins with purpose-specific permission text. Because these are native modules/config changes, a development build is the authoritative environment for the embedded recent-photo grid; Expo Go uses the fallback described above.
 - Fixes the React key collision found in the Expo terminal: the conversation's `FlatList` and composer wrapper are siblings, so they now use distinct `messages-<conversationId>` and `composer-<conversationId>` keys. The previous identical conversation-ID keys could cause React to duplicate, omit, or incorrectly reuse either subtree during layout updates.
 - Replaces `contentContainerStyle.paddingBottom` with a real `ListFooterComponent` spacer whose height is the measured composer plus separation. Android `FlatList.scrollToEnd()` can anchor to the last row without consistently treating container padding as scrollable content; a real footer makes the clearance part of the list's measured content. The first composer measurement triggers one additional non-animated anchor pass, placing the newest bubble completely above the capsule when a conversation opens while still allowing content to pass behind it during manual scrolling.
@@ -115,3 +115,28 @@ The full-viewport `KeyboardAvoidingView` did not move the absolutely positioned 
 - Keyboard Controller `willShow`/`didShow` events provide the keyboard height to React state. The real list footer is now `composer height + keyboard height + separation`, so the list has measurable room for both obstructions.
 - Keyboard show requests a new bottom anchor. As the footer grows, `onContentSizeChange` completes that request, placing the latest bubble above the sticky composer instead of halfway behind the keyboard. Hide events remove the keyboard portion and restore the closed layout.
 - The smooth initial reveal and fixed closed-keyboard latest-message clearance remain unchanged.
+
+## Location and contact link-card follow-up
+
+The compatibility drafts now remain human-readable in storage and over the socket, but their message bubbles recognize only the exact Envelo-generated formats and present them as richer controls:
+
+- Location messages render a non-interactive native map preview with a pin through the Expo SDK 54-compatible `react-native-maps` package. The full card has link semantics and opens the coordinate with the universal Google Maps search URL. Existing messages using the earlier `maps.google.com/?q=` URL are recognized too, so previously sent locations are upgraded without a migration. Web uses a lightweight map-style fallback card and the same link.
+- Contact messages render a dedicated contact card. The shared phone number is an underlined link with an accessible call label and opens the device dialer through the `tel:` scheme. A selected email remains visible, but only the phone number initiates a dial action.
+- Ordinary text containing coordinates, URLs, or phone numbers is not auto-converted. Both parsers require the complete Envelo-generated two/three-line structure, validate coordinate ranges, and reject mismatched map-link coordinates.
+- The send flow, offline text queue, socket contract, and database schema are unchanged. A future Milestone 2 migration will replace this compatibility encoding with explicit location/contact kinds and validated metadata.
+- Expo Go can render `react-native-maps` without additional setup. Store/development binaries that force the Google provider must supply platform-restricted Google Maps API keys as described by the Expo SDK 54 deployment guide; keys must stay out of source control.
+
+## Fourth real-device correction: route reveal and inline metadata
+
+- Disable the native stack animation specifically for the conversation route. Android's default push transition briefly composited the still-mounted inbox underneath the incoming conversation scene, producing a visible ghost of the Envelo header, search field, and conversation row. Opening a conversation is now immediate and opaque; message loading, initial bottom anchoring, keyboard behavior, and back navigation remain unchanged.
+- Render plain-message metadata as nested inline text rather than an unconditional block row. Short messages now keep their timestamp and outgoing status icon on the same line. When the combined content cannot fit, non-breaking spacing keeps the timestamp/status together and lets that unit wrap naturally after the final text line.
+- Keep block metadata below media-only, location-card, and contact-card messages, where inline placement would overlap or compress the rich content.
+
+## Emoji catalog and GIPHY expansion
+
+- Replace the original 24-item placeholder with the maintained Unicode 15 native dataset from `@emoji-mart/data`. The picker exposes all dataset categories, category switching, emoji name/keyword search, and accessible insertion into the unsent draft. It uses virtualized rows rather than mounting the entire catalog at once.
+- Stickers remain deliberately absent until their later milestone; the expression switcher now advertises only Emoji and GIFs.
+- GIPHY is the selected GIF provider. The mobile client calls GIPHY's client-side Trending and Search endpoints, caps queries at 50 characters, requests 24 PG-rated results, and displays visible `Powered by GIPHY` attribution in the provider panel. `EXPO_PUBLIC_GIPHY_API_KEY` is required and documented in `mobile/.env.example`; no API key is committed.
+- Selecting a GIF queues it immediately as remote media through the existing durable optimistic/offline pipeline. The socket server accepts only HTTPS media URLs on the existing ImageKit endpoint or exact GIPHY CDN hosts, preventing arbitrary remote-media injection. Pending GIPHY media retains its remote URL and needs no local file copy.
+- `expo-image` renders animated GIF/WebP content in bubbles and the fullscreen viewer. GIPHY messages show a provider badge in addition to picker attribution. Text/photo/location/contact behavior, message status reconciliation, keyboard clearance, and newest-message anchoring are unchanged.
+- GIPHY activation requires a development/production key from the provider and must retain the provider's attribution. Before store release, upgrade the key according to GIPHY's production policy and complete real-device search, send, offline queue, animation, moderation-rating, and accessibility checks.

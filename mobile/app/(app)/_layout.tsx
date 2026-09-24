@@ -27,10 +27,9 @@ export default function AppLayout() {
       <Stack.Screen
         name="conversation/[conversationId]"
         options={{
-          headerBackTitle: 'Back',
-          title: 'Conversation',
+          animation: 'none',
+          headerShown: false,
           contentStyle: { backgroundColor: messagingColors[scheme].bgBase },
-          headerStyle: { backgroundColor: messagingColors[scheme].bgBase },
         }}
       />
     </Stack>

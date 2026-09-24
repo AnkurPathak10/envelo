@@ -44,10 +44,7 @@ import {
   useSocket,
 } from '@/lib/socket/SocketContext';
 import { useAppColorScheme } from '@/lib/theme/useAppColorScheme';
-import {
-  type ThemePreference,
-  useAppTheme,
-} from '@/lib/theme/ThemeContext';
+import { type ThemePreference, useAppTheme } from '@/lib/theme/ThemeContext';
 
 function getErrorMessage(error: unknown): string {
   return error instanceof ApiError
@@ -145,9 +142,9 @@ export default function HomeScreen() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isThemeDropdownOpen, setIsThemeDropdownOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<
-    ConversationParticipant[]
-  >([]);
+  const [searchResults, setSearchResults] = useState<ConversationParticipant[]>(
+    []
+  );
   const [isSearching, setIsSearching] = useState(false);
   const [searchErrorMessage, setSearchErrorMessage] = useState<string | null>(
     null
@@ -216,6 +213,8 @@ export default function HomeScreen() {
         pathname: '/(app)/conversation/[conversationId]',
         params: {
           conversationId: conversation.id,
+          participantAvatarUrl: conversation.participant.avatarUrl ?? '',
+          participantId: conversation.participant.id,
           participantName: conversation.participant.displayName,
         },
       });
@@ -282,6 +281,8 @@ export default function HomeScreen() {
         pathname: '/(app)/conversation/[conversationId]',
         params: {
           conversationId: conversation.id,
+          participantAvatarUrl: conversation.participant.avatarUrl ?? '',
+          participantId: conversation.participant.id,
           participantName: conversation.participant.displayName,
         },
       });
@@ -578,11 +579,7 @@ export default function HomeScreen() {
               ]}
             >
               <View style={styles.menuItemLabel}>
-                <MaterialIcons
-                  color={c.textPrimary}
-                  name="palette"
-                  size={20}
-                />
+                <MaterialIcons color={c.textPrimary} name="palette" size={20} />
                 <Text style={styles.menuItemText}>Theme</Text>
               </View>
               <View style={styles.currentTheme}>
@@ -592,9 +589,7 @@ export default function HomeScreen() {
                 </Text>
                 <MaterialIcons
                   color={c.textMuted}
-                  name={
-                    isThemeDropdownOpen ? 'expand-less' : 'expand-more'
-                  }
+                  name={isThemeDropdownOpen ? 'expand-less' : 'expand-more'}
                   size={21}
                 />
               </View>

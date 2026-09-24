@@ -2,7 +2,7 @@ import type { Prisma } from "../generated/prisma";
 import type { Server, Socket } from "socket.io";
 import { z } from "zod";
 
-import { isImageKitUrl } from "./media";
+import { isAllowedMediaUrl } from "./media";
 
 export const messageSendSchema = z
   .object({
@@ -12,7 +12,7 @@ export const messageSendSchema = z
       .string()
       .trim()
       .url()
-      .refine(isImageKitUrl, "Invalid media URL")
+      .refine(isAllowedMediaUrl, "Invalid media URL")
       .optional(),
     clientMessageId: z.string().trim().min(1).max(100).optional(),
   })

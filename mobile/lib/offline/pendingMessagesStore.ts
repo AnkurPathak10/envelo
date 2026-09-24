@@ -19,12 +19,23 @@ export type PendingMessage = PendingMessageBase &
         mediaFileName: string;
         mediaMimeType: 'image/jpeg';
       }
+    | {
+        kind: 'remote-media';
+        content: null;
+        mediaUrl: string;
+      }
   );
 
 export function isPendingMediaMessage(
   message: PendingMessage
 ): message is Extract<PendingMessage, { kind: 'media' }> {
   return message.kind === 'media';
+}
+
+export function isPendingRemoteMediaMessage(
+  message: PendingMessage
+): message is Extract<PendingMessage, { kind: 'remote-media' }> {
+  return message.kind === 'remote-media';
 }
 
 let storageMutation = Promise.resolve();
@@ -49,10 +60,15 @@ function isPendingMessage(value: unknown): value is PendingMessage {
         typeof candidate.mediaFileName === 'string' &&
         candidate.mediaFileName.length > 0 &&
         candidate.mediaMimeType === 'image/jpeg'
-      : (candidate.kind === undefined || candidate.kind === 'text') &&
-        typeof candidate.content === 'string' &&
-        candidate.content.length > 0 &&
-        candidate.content.length <= 2000) &&
+      : candidate.kind === 'remote-media'
+        ? candidate.content === null &&
+          typeof candidate.mediaUrl === 'string' &&
+          candidate.mediaUrl.startsWith('https://') &&
+          candidate.mediaUrl.length <= 2048
+        : (candidate.kind === undefined || candidate.kind === 'text') &&
+          typeof candidate.content === 'string' &&
+          candidate.content.length > 0 &&
+          candidate.content.length <= 2000) &&
     typeof candidate.createdAt === 'string' &&
     Number.isFinite(Date.parse(candidate.createdAt))
   );
@@ -121,6 +137,28 @@ export function removePendingMessage(
         message.clientMessageId !== clientMessageId
     );
     if (remaining.length !== messages.length) await writeAll(remaining);
+  });
+}
+
+export function removePendingMessagesForConversation(
+  senderId: string,
+  conversationId: string
+): Promise<PendingMessage[]> {
+  return mutateStorage(async () => {
+    const messages = await readAll();
+    const removed = messages.filter(
+      (message) =>
+        message.senderId === senderId &&
+        message.conversationId === conversationId
+    );
+    await writeAll(
+      messages.filter(
+        (message) =>
+          message.senderId !== senderId ||
+          message.conversationId !== conversationId
+      )
+    );
+    return removed;
   });
 }
 

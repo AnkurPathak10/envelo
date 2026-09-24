@@ -21,20 +21,20 @@ export const colors = {
     bgSurface: '#F5F7FA',
     textPrimary: '#11181C',
     textMuted: '#5B6572',
-    accentPrimary: '#2F80ED',
+    accentPrimary: '#D39A86',
     onAccent: '#FFFFFF',
     border: '#E2E6EA',
     error: '#D93036',
     success: '#1F9D5C',
   },
   dark: {
-    bgBase: '#0B0F14',
-    bgSurface: '#151A21',
-    textPrimary: '#F5F7FA',
-    textMuted: '#8A93A2',
-    accentPrimary: '#2F80ED',
+    bgBase: '#242326',
+    bgSurface: '#343236',
+    textPrimary: '#F7F2F0',
+    textMuted: '#B8AEAB',
+    accentPrimary: '#D39A86',
     onAccent: '#FFFFFF',
-    border: '#242B33',
+    border: '#4A464A',
     error: '#E5484D',
     success: '#30A46C',
   },
@@ -51,6 +51,7 @@ export const messagingPalette = {
 
 type MessagingColors = typeof colors.light & {
   outgoingBubble: string;
+  outgoingText: string;
   unreadBadge: string;
   selectedTheme: string;
   onStateAction: string;
@@ -65,16 +66,19 @@ export const messagingColors: Record<'light' | 'dark', MessagingColors> = {
     onAccent: colors.light.textPrimary,
     border: messagingPalette.cottonRose,
     outgoingBubble: messagingPalette.softBlush,
+    outgoingText: colors.light.textPrimary,
     unreadBadge: messagingPalette.cottonRose,
     selectedTheme: messagingPalette.cottonRose,
     onStateAction: colors.light.textPrimary,
   },
   dark: {
     ...colors.dark,
-    outgoingBubble: colors.dark.accentPrimary,
-    unreadBadge: colors.dark.accentPrimary,
-    selectedTheme: colors.dark.accentPrimary,
-    onStateAction: colors.dark.bgBase,
+    onAccent: colors.light.textPrimary,
+    outgoingBubble: messagingPalette.softBlush,
+    outgoingText: colors.light.textPrimary,
+    unreadBadge: messagingPalette.cottonRose,
+    selectedTheme: messagingPalette.cottonRose,
+    onStateAction: colors.light.textPrimary,
   },
 };
 
@@ -86,15 +90,30 @@ export const messagingAvatarColors = [
 ] as const;
 
 export const authColors = {
-  brandDeep: '#480200',
-  brandPrimary: '#D39A86',
-  brandSoft: '#E3C4C9',
-  panel: '#FEFFFE',
-  input: '#F1F0F1',
-  textPrimary: '#11181C',
-  textMuted: '#5B6572',
-  textOnBrand: '#FEFFFE',
-  error: '#D93036',
+  light: {
+    brandDeep: '#480200',
+    brandPrimary: messagingPalette.rosyTaupe,
+    brandSoft: messagingPalette.cottonRose,
+    panel: messagingPalette.white,
+    input: messagingPalette.platinum,
+    textPrimary: colors.light.textPrimary,
+    textMuted: colors.light.textMuted,
+    textOnBrand: messagingPalette.white,
+    link: '#480200',
+    error: colors.light.error,
+  },
+  dark: {
+    brandDeep: '#480200',
+    brandPrimary: messagingPalette.rosyTaupe,
+    brandSoft: '#6B5555',
+    panel: colors.dark.bgBase,
+    input: colors.dark.bgSurface,
+    textPrimary: colors.dark.textPrimary,
+    textMuted: colors.dark.textMuted,
+    textOnBrand: messagingPalette.white,
+    link: messagingPalette.rosyTaupe,
+    error: colors.dark.error,
+  },
 } as const;
 
 export const radius = {

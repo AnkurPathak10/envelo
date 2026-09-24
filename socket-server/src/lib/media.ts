@@ -17,3 +17,20 @@ export function isImageKitUrl(value: string): boolean {
     return false;
   }
 }
+
+export function isGiphyUrl(value: string): boolean {
+  try {
+    const candidate = new URL(value);
+    return (
+      candidate.protocol === "https:" &&
+      /^(?:media\d*|i)\.giphy\.com$/i.test(candidate.hostname) &&
+      candidate.pathname.split("/").some(Boolean)
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function isAllowedMediaUrl(value: string): boolean {
+  return isImageKitUrl(value) || isGiphyUrl(value);
+}
