@@ -213,6 +213,12 @@ moment it's confirmed (from its optimistic local time to the
 server's authoritative time) — this is expected and matches how
 real messaging apps behave, not a bug to prevent.
 
+Pending messages are scoped by conversation and authenticated sender, but are
+not filtered by the server-owned clear-history timestamp. Their `createdAt`
+comes from the device clock and cannot be safely compared with a server clock.
+Clear/Delete remove the applicable durable queue entries directly before the
+new cutoff is rendered.
+
 ## File organization
 
 ```text

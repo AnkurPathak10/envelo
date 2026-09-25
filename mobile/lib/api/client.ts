@@ -63,6 +63,7 @@ function resolveApiUrl(): string {
 
 const apiUrl = resolveApiUrl();
 let onSessionExpired: (() => void) | undefined;
+let refreshInFlight: Promise<RefreshResponse | null> | null = null;
 export function setSessionExpiredHandler(
   handler: (() => void) | undefined
 ): void {
@@ -105,7 +106,7 @@ async function fetchApi(
     );
   }
 }
-async function refreshStoredTokens(): Promise<RefreshResponse | null> {
+async function performStoredTokenRefresh(): Promise<RefreshResponse | null> {
   const tokens = await getTokens();
   if (Platform.OS !== 'web' && !tokens?.refreshToken) return null;
   const response = await fetchApi('/api/auth/refresh', {
@@ -123,6 +124,17 @@ async function refreshStoredTokens(): Promise<RefreshResponse | null> {
   const refreshed = (await response.json()) as RefreshResponse;
   await saveTokens(refreshed, refreshed.user.id);
   return refreshed;
+}
+
+async function refreshStoredTokens(): Promise<RefreshResponse | null> {
+  if (refreshInFlight) return refreshInFlight;
+
+  refreshInFlight = performStoredTokenRefresh();
+  try {
+    return await refreshInFlight;
+  } finally {
+    refreshInFlight = null;
+  }
 }
 export async function apiRequest<T>(
   path: string,

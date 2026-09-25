@@ -496,8 +496,7 @@ export function ChatScreen({
       .filter(
         (message) =>
           message.conversationId === conversationId &&
-          message.senderId === user?.id &&
-          isAfterConversationCutoff(message.createdAt, hiddenBefore)
+          message.senderId === user?.id
       )
       .map((message) =>
         toPendingTextMessage(

@@ -7,7 +7,6 @@ import {
   createRefreshTokenInDb,
 } from "@/lib/auth/tokens";
 import {
-  clearWebRefreshCookie,
   exposeRefreshToken,
   readRefreshToken,
   setWebRefreshCookie,
@@ -37,12 +36,10 @@ export async function POST(request: NextRequest) {
 
   const rawToken = readRefreshToken(request, parsed.data.refreshToken);
   if (!rawToken) {
-    const response = NextResponse.json(
+    return NextResponse.json(
       { error: INVALID_REFRESH_TOKEN_ERROR },
       { status: 401 },
     );
-    clearWebRefreshCookie(request, response);
-    return response;
   }
   const tokenHash = hashRefreshToken(rawToken);
 
@@ -65,19 +62,29 @@ export async function POST(request: NextRequest) {
     existingToken.revokedAt !== null ||
     existingToken.expiresAt <= new Date()
   ) {
-    const response = NextResponse.json(
+    return NextResponse.json(
       { error: INVALID_REFRESH_TOKEN_ERROR },
       { status: 401 },
     );
-    clearWebRefreshCookie(request, response);
-    return response;
   }
 
-  // Rotate: revoke the existing token so it can never be used again
-  await prisma.refreshToken.update({
-    where: { id: existingToken.id },
+  // Compare-and-set rotation: only one concurrent request may consume this
+  // token. A loser returns 401 without touching the browser's cookie because
+  // the winning response may already have installed the replacement token.
+  const rotation = await prisma.refreshToken.updateMany({
+    where: {
+      id: existingToken.id,
+      revokedAt: null,
+      expiresAt: { gt: new Date() },
+    },
     data: { revokedAt: new Date() },
   });
+  if (rotation.count !== 1) {
+    return NextResponse.json(
+      { error: INVALID_REFRESH_TOKEN_ERROR },
+      { status: 401 },
+    );
+  }
 
   const newAccessToken = signAccessToken(existingToken.userId);
   const newRefreshToken = await createRefreshTokenInDb(existingToken.userId);
