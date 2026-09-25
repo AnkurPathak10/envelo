@@ -159,6 +159,30 @@ export function removePendingMessage(
   });
 }
 
+export function clearPendingMessageReply(
+  senderId: string,
+  clientMessageId: string
+): Promise<PendingMessage | null> {
+  return mutateStorage(async () => {
+    const messages = await readAll();
+    let updatedMessage: PendingMessage | null = null;
+    const updatedMessages = messages.map((message) => {
+      if (
+        message.senderId !== senderId ||
+        message.clientMessageId !== clientMessageId ||
+        !message.replyTo
+      ) {
+        return message;
+      }
+
+      updatedMessage = { ...message, replyTo: null };
+      return updatedMessage;
+    });
+    if (updatedMessage) await writeAll(updatedMessages);
+    return updatedMessage;
+  });
+}
+
 export function removePendingMessagesForConversation(
   senderId: string,
   conversationId: string

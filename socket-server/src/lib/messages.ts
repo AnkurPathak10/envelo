@@ -46,7 +46,12 @@ export interface TextMessagePayload {
 }
 
 export type MessageSendAcknowledgement =
-  { ok: true; message: TextMessagePayload } | { ok: false; error: string };
+  | { ok: true; message: TextMessagePayload }
+  | {
+      ok: false;
+      error: string;
+      code?: "REPLY_TARGET_UNAVAILABLE";
+    };
 
 export type MessageStatusAcknowledgement =
   { success: true; updated: number } | { success: false; error: string };
@@ -135,6 +140,7 @@ export const textMessageSelect = {
       senderId: true,
       content: true,
       mediaUrl: true,
+      createdAt: true,
       sender: { select: { displayName: true } },
     },
   },
@@ -146,6 +152,7 @@ type SelectedTextMessage = Prisma.MessageGetPayload<{
 
 export function toTextMessagePayload(
   message: SelectedTextMessage,
+  viewerClearedAt: Date | null = null,
 ): TextMessagePayload {
   if (message.content === null && message.mediaUrl === null) {
     throw new Error("Persisted message has neither content nor media.");
@@ -159,14 +166,16 @@ export function toTextMessagePayload(
     mediaUrl: message.mediaUrl,
     createdAt: message.createdAt.toISOString(),
     clientMessageId: message.clientMessageId,
-    replyTo: message.replyTo
-      ? {
-          id: message.replyTo.id,
-          senderId: message.replyTo.senderId,
-          senderName: message.replyTo.sender.displayName,
-          content: message.replyTo.content,
-          mediaUrl: message.replyTo.mediaUrl,
-        }
-      : null,
+    replyTo:
+      message.replyTo &&
+      (!viewerClearedAt || message.replyTo.createdAt > viewerClearedAt)
+        ? {
+            id: message.replyTo.id,
+            senderId: message.replyTo.senderId,
+            senderName: message.replyTo.sender.displayName,
+            content: message.replyTo.content,
+            mediaUrl: message.replyTo.mediaUrl,
+          }
+        : null,
   };
 }

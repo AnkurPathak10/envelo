@@ -148,6 +148,8 @@ The compatibility drafts now remain human-readable in storage and over the socke
 - Sending a reply stores the target message ID in `Message.replyToId`. The socket server validates that the target belongs to the same conversation before persisting it, and history, socket broadcasts/acknowledgements, cache entries, and offline pending messages carry the immutable reply preview needed to render it on every signed-in device.
 - Reply bubbles render a compact quoted card with the original sender and message/media preview before the new content. Replies are deliberately unavailable for an optimistic pending bubble because its durable target ID does not yet exist.
 - This is a real persisted relationship rather than copying an untrusted reply caption into the message body. If the quoted target is later removed by retention or deletion, PostgreSQL sets `replyToId` to null and the reply message remains intact.
+- If an offline reply reconnects after its target has become unavailable, the server returns a typed terminal reply-target failure. The client removes only the stale reply association from durable queue storage, immediately retries the original body/media as a normal message with the same idempotency key, and continues flushing later messages after confirmation.
+- Every replyable message also exposes a screen-reader-only Reply button with a bounded message preview. It opens the same reply composer as the gesture without taking over the bubble's existing image, map, contact, or other nested controls.
 
 ### Reply gesture and compact-metadata visual correction
 

@@ -74,7 +74,9 @@ export async function GET(request: NextRequest, context: MessageRouteContext) {
 
     return NextResponse.json({
       clearedAt: participation.clearedAt?.toISOString() ?? null,
-      messages: matches.map(toMessageHistoryItem),
+      messages: matches.map((message) =>
+        toMessageHistoryItem(message, participation.clearedAt),
+      ),
       nextCursor: null,
     });
   }
@@ -118,7 +120,9 @@ export async function GET(request: NextRequest, context: MessageRouteContext) {
 
   return NextResponse.json({
     clearedAt: participation.clearedAt?.toISOString() ?? null,
-    messages: page.reverse().map(toMessageHistoryItem),
+    messages: page
+      .reverse()
+      .map((message) => toMessageHistoryItem(message, participation.clearedAt)),
     nextCursor,
   });
 }

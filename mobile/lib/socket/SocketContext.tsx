@@ -25,6 +25,7 @@ import {
 import { uploadImage, type PreparedImage } from '@/lib/media/upload';
 import {
   addPendingMessage,
+  clearPendingMessageReply,
   createClientMessageId,
   getPendingMessages,
   removePendingMessage,
@@ -45,7 +46,12 @@ export interface MessageSendPayload {
 export type SocketTextMessage = Omit<TextMessage, 'status'>;
 
 export type MessageSendAcknowledgement =
-  { ok: true; message: SocketTextMessage } | { ok: false; error: string };
+  | { ok: true; message: SocketTextMessage }
+  | {
+      ok: false;
+      error: string;
+      code?: 'REPLY_TARGET_UNAVAILABLE';
+    };
 
 export type MessageStatusAcknowledgement =
   { success: true; updated: number } | { success: false; error: string };
@@ -576,12 +582,48 @@ export function SocketProvider({ children }: PropsWithChildren) {
                   replyToId: pendingMessage.replyTo?.id,
                 }
               );
-              if (!acknowledgement.ok) break;
+              let resolvedAcknowledgement = acknowledgement;
+              if (
+                !resolvedAcknowledgement.ok &&
+                resolvedAcknowledgement.code === 'REPLY_TARGET_UNAVAILABLE' &&
+                pendingMessage.replyTo
+              ) {
+                pendingMutationRevisionRef.current += 1;
+                const updatedPendingMessage = await clearPendingMessageReply(
+                  senderId,
+                  pendingMessage.clientMessageId
+                );
+                if (!updatedPendingMessage) break;
+                if (
+                  currentUserIdRef.current !== senderId ||
+                  socketRef.current !== flushSocket ||
+                  !flushSocket.connected
+                ) {
+                  break;
+                }
+                setPendingMessages((current) =>
+                  current.map((message) =>
+                    message.clientMessageId === pendingMessage.clientMessageId
+                      ? updatedPendingMessage
+                      : message
+                  )
+                );
+                resolvedAcknowledgement = await sendMessageThroughSocket(
+                  flushSocket,
+                  {
+                    conversationId: pendingMessage.conversationId,
+                    content: pendingMessage.content,
+                    mediaUrl,
+                    clientMessageId: pendingMessage.clientMessageId,
+                  }
+                );
+              }
+              if (!resolvedAcknowledgement.ok) break;
 
               await confirmPendingMessage(pendingMessage.clientMessageId);
               if (currentUserIdRef.current !== senderId) break;
               for (const listener of messageListenersRef.current) {
-                listener(acknowledgement.message);
+                listener(resolvedAcknowledgement.message);
               }
             } catch {
               break;

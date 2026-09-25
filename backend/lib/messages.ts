@@ -15,6 +15,7 @@ export function messageHistorySelect(currentUserId: string) {
         senderId: true,
         content: true,
         mediaUrl: true,
+        createdAt: true,
         sender: { select: { displayName: true } },
       },
     },
@@ -50,6 +51,7 @@ export interface MessageHistoryItem {
 
 export function toMessageHistoryItem(
   message: SelectedHistoryMessage,
+  viewerClearedAt: Date | null = null,
 ): MessageHistoryItem {
   return {
     id: message.id,
@@ -57,15 +59,17 @@ export function toMessageHistoryItem(
     senderId: message.senderId,
     content: message.content,
     mediaUrl: message.mediaUrl,
-    replyTo: message.replyTo
-      ? {
-          id: message.replyTo.id,
-          senderId: message.replyTo.senderId,
-          senderName: message.replyTo.sender.displayName,
-          content: message.replyTo.content,
-          mediaUrl: message.replyTo.mediaUrl,
-        }
-      : null,
+    replyTo:
+      message.replyTo &&
+      (!viewerClearedAt || message.replyTo.createdAt > viewerClearedAt)
+        ? {
+            id: message.replyTo.id,
+            senderId: message.replyTo.senderId,
+            senderName: message.replyTo.sender.displayName,
+            content: message.replyTo.content,
+            mediaUrl: message.replyTo.mediaUrl,
+          }
+        : null,
     createdAt: message.createdAt.toISOString(),
     status: message.statuses[0]?.status ?? null,
   };

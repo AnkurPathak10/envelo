@@ -41,6 +41,14 @@ function replyPreviewText(message: RenderableTextMessage['replyTo']): string {
   return message.content ?? (message.mediaUrl ? 'Photo' : 'Message');
 }
 
+function accessibilityMessagePreview(message: RenderableTextMessage): string {
+  if (message.content) {
+    const content = message.content.replace(/\s+/g, ' ').trim();
+    return content.length > 80 ? `${content.slice(0, 77)}...` : content;
+  }
+  return message.mediaUrl ? 'photo' : 'message';
+}
+
 export function MessageBubble({
   message,
   isOutgoing,
@@ -115,6 +123,17 @@ export function MessageBubble({
           isOutgoing ? styles.outgoingRow : styles.incomingRow,
         ]}
       >
+        {canReply ? (
+          <Pressable
+            accessibilityHint="Opens the reply composer"
+            accessibilityLabel={`Reply to ${isOutgoing ? 'your' : 'received'} message: ${accessibilityMessagePreview(message)}`}
+            accessibilityRole="button"
+            onPress={() => onReply?.(message)}
+            style={styles.screenReaderReply}
+          >
+            <Text>Reply</Text>
+          </Pressable>
+        ) : null}
         {canReply ? (
           <Animated.View
             pointerEvents="none"
@@ -346,6 +365,15 @@ const createStyles = (c: typeof colors.light) =>
     },
     replySender: { fontSize: 12, fontWeight: '700' },
     replyText: { fontSize: 12, marginTop: 1 },
+    screenReaderReply: {
+      height: 1,
+      opacity: 0,
+      overflow: 'hidden',
+      position: 'absolute',
+      right: 0,
+      top: 0,
+      width: 1,
+    },
     incomingReplyCard: { backgroundColor: c.bgBase },
     incomingReplySender: { color: c.accentPrimary },
     incomingReplyText: { color: c.textMuted },

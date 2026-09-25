@@ -15,12 +15,30 @@ async function findExistingClientMessage(
   senderId: string,
   clientMessageId: string,
 ) {
-  return prisma.message.findUnique({
+  const message = await prisma.message.findUnique({
     where: {
       senderId_clientMessageId: { senderId, clientMessageId },
     },
-    select: textMessageSelect,
+    select: {
+      ...textMessageSelect,
+      conversation: {
+        select: {
+          participants: {
+            where: { userId: senderId },
+            take: 1,
+            select: { clearedAt: true },
+          },
+        },
+      },
+    },
   });
+  return message
+    ? {
+        message,
+        viewerClearedAt:
+          message.conversation.participants[0]?.clearedAt ?? null,
+      }
+    : null;
 }
 
 export function registerMessageHandlers(
@@ -49,7 +67,10 @@ export function registerMessageHandlers(
         if (existingMessage) {
           acknowledge?.({
             ok: true,
-            message: toTextMessagePayload(existingMessage),
+            message: toTextMessagePayload(
+              existingMessage.message,
+              existingMessage.viewerClearedAt,
+            ),
           });
           return;
         }
@@ -66,7 +87,7 @@ export function registerMessageHandlers(
           select: {
             conversation: {
               select: {
-                participants: { select: { userId: true } },
+                participants: { select: { userId: true, clearedAt: true } },
               },
             },
           },
@@ -117,7 +138,10 @@ export function registerMessageHandlers(
           select: { id: true },
         });
 
-        return { message, recipientIds };
+        return {
+          message,
+          participants: senderParticipant.conversation.participants,
+        };
       });
 
       if (!transactionResult || "invalidReply" in transactionResult) {
@@ -126,6 +150,10 @@ export function registerMessageHandlers(
         );
         acknowledge?.({
           ok: false,
+          code:
+            transactionResult && "invalidReply" in transactionResult
+              ? "REPLY_TARGET_UNAVAILABLE"
+              : undefined,
           error:
             transactionResult && "invalidReply" in transactionResult
               ? "Reply target is unavailable"
@@ -134,14 +162,24 @@ export function registerMessageHandlers(
         return;
       }
 
-      const message = toTextMessagePayload(transactionResult.message);
-      const rooms = [
-        userRoom(senderId),
-        ...transactionResult.recipientIds.map(userRoom),
-      ];
-
-      io.to(rooms).emit("message:new", message);
-      acknowledge?.({ ok: true, message });
+      const senderParticipant =
+        transactionResult.participants.find(
+          (participant) => participant.userId === senderId,
+        ) ?? null;
+      const senderMessage = toTextMessagePayload(
+        transactionResult.message,
+        senderParticipant?.clearedAt ?? null,
+      );
+      for (const participant of transactionResult.participants) {
+        io.to(userRoom(participant.userId)).emit(
+          "message:new",
+          toTextMessagePayload(
+            transactionResult.message,
+            participant.clearedAt,
+          ),
+        );
+      }
+      acknowledge?.({ ok: true, message: senderMessage });
     } catch (error: unknown) {
       if (
         clientMessageId &&
@@ -155,7 +193,10 @@ export function registerMessageHandlers(
         if (existingMessage) {
           acknowledge?.({
             ok: true,
-            message: toTextMessagePayload(existingMessage),
+            message: toTextMessagePayload(
+              existingMessage.message,
+              existingMessage.viewerClearedAt,
+            ),
           });
           return;
         }
