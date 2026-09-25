@@ -133,9 +133,18 @@ from the default Expo template.)
   refresh token exists in SecureStore, the app always attempts to
   resume the session.
 
+### Web session follow-up
+
+- Expo SecureStore is native-only. On web, keep the short-lived access token in memory and store the rotating refresh token only in a backend-issued `HttpOnly` cookie; never put either token in `localStorage` or AsyncStorage.
+- Browser auth requests send `X-Envelo-Platform: web` with credentials included. Login/signup set the scoped refresh cookie, refresh rotates it, and logout/rejected refresh clears it. Browser JSON responses must not expose the raw refresh token; native clients retain the existing response-body/SecureStore contract.
+- Credentialed CORS must allow only configured origins, include `X-Envelo-Platform`, and allow every API method used by web, including `DELETE` for participant-scoped Clear/Delete actions.
+- When Expo web itself is opened on `localhost`/`127.0.0.1`, resolve the configured LAN API host to that same browser hostname while preserving its port. Native Expo Go keeps the configured LAN address; this makes the development browser and API same-site so the HttpOnly cookie works over local HTTP.
+- Startup waits for cookie refresh before choosing the protected route, so a normal browser reload keeps the user signed in without briefly rendering cached account data as an unauthenticated session.
+
 ## The API Client Wrapper (`lib/api/client.ts`)
 
 Behavior:
+
 1. Reads the current access token (from `AuthContext` or
    SecureStore) and attaches it as `Authorization: Bearer <token>`
    on every request to `backend/`.

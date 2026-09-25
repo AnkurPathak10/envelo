@@ -56,8 +56,11 @@ model ConversationParticipant {
   userId         String
   user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   joinedAt       DateTime     @default(now())
+  clearedAt      DateTime?
+  deletedAt      DateTime?
 
   @@unique([conversationId, userId])
+  @@index([userId, deletedAt])
 }
 
 model Message {

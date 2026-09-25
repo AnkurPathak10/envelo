@@ -46,6 +46,7 @@ export function MessageBubble({ message, isOutgoing }: MessageBubbleProps) {
     : parseSharedContact(message.content);
   const hasInlineMetadata =
     Boolean(message.content) && !sharedLocation && !sharedContact;
+  const metadataSpacer = isOutgoing ? '\u00A0'.repeat(15) : '\u00A0'.repeat(10);
   const messageTime = formatMessageTime(message.createdAt);
   const isGif = isGiphyMediaUrl(message.mediaUrl);
 
@@ -103,52 +104,36 @@ export function MessageBubble({ message, isOutgoing }: MessageBubbleProps) {
               ]}
             >
               {message.content}
-              <Text
-                style={[
-                  styles.inlineMetadata,
-                  isOutgoing
-                    ? styles.outgoingTimestamp
-                    : styles.incomingTimestamp,
-                ]}
-              >
-                {'\u00A0\u00A0'}
-                {messageTime}
-                {isOutgoing ? (
-                  <>
-                    {'\u00A0'}
-                    <MessageStatusIcon
-                      color={c.outgoingText}
-                      status={message.status}
-                      size={14}
-                      style={styles.inlineStatusIcon}
-                    />
-                  </>
-                ) : null}
+              <Text aria-hidden style={styles.metadataSpacer}>
+                {metadataSpacer}
               </Text>
             </Text>
           ) : null}
-          {!hasInlineMetadata ? (
-            <View style={styles.metadataRow}>
-              <Text
-                style={[
-                  styles.timestamp,
-                  isOutgoing
-                    ? styles.outgoingTimestamp
-                    : styles.incomingTimestamp,
-                ]}
-              >
-                {messageTime}
-              </Text>
-              {isOutgoing ? (
-                <MessageStatusIcon
-                  color={c.outgoingText}
-                  status={message.status}
-                  size={14}
-                  style={styles.statusIcon}
-                />
-              ) : null}
-            </View>
-          ) : null}
+          <View
+            style={[
+              styles.metadataRow,
+              hasInlineMetadata && styles.anchoredMetadataRow,
+            ]}
+          >
+            <Text
+              style={[
+                styles.timestamp,
+                isOutgoing
+                  ? styles.outgoingTimestamp
+                  : styles.incomingTimestamp,
+              ]}
+            >
+              {messageTime}
+            </Text>
+            {isOutgoing ? (
+              <MessageStatusIcon
+                color={c.outgoingStatus}
+                status={message.status}
+                size={15}
+                style={styles.statusIcon}
+              />
+            ) : null}
+          </View>
         </View>
       </View>
       {message.mediaUrl ? (
@@ -170,6 +155,7 @@ const createStyles = (c: typeof colors.light) =>
       overflow: 'hidden',
       paddingHorizontal: 14,
       paddingVertical: 10,
+      position: 'relative',
     },
     caption: { marginTop: 8 },
     content: { fontSize: 16, lineHeight: 22 },
@@ -210,8 +196,7 @@ const createStyles = (c: typeof colors.light) =>
     incomingRow: { justifyContent: 'flex-start' },
     incomingText: { color: c.textPrimary },
     incomingTimestamp: { color: c.textMuted },
-    inlineMetadata: { fontSize: 11, lineHeight: 14 },
-    inlineStatusIcon: { opacity: 0.72 },
+    metadataSpacer: { opacity: 0 },
     messageImage: { height: '100%', width: '100%' },
     metadataRow: {
       alignItems: 'center',
@@ -219,11 +204,17 @@ const createStyles = (c: typeof colors.light) =>
       justifyContent: 'flex-end',
       marginTop: 5,
     },
+    anchoredMetadataRow: {
+      bottom: 10,
+      marginTop: 0,
+      position: 'absolute',
+      right: 14,
+    },
     outgoingBubble: { backgroundColor: c.outgoingBubble },
     outgoingRow: { justifyContent: 'flex-end' },
     outgoingText: { color: c.outgoingText },
     outgoingTimestamp: { color: c.outgoingText, opacity: 0.72 },
     row: { flexDirection: 'row', marginVertical: 4 },
-    statusIcon: { marginLeft: 4, opacity: 0.72 },
+    statusIcon: { marginLeft: 4 },
     timestamp: { fontSize: 11, textAlign: 'right' },
   });

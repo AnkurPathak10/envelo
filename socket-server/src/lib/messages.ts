@@ -48,6 +48,16 @@ export interface MessageStatusPayload {
   status: "DELIVERED" | "READ";
 }
 
+export interface ConversationVisibilityPayload {
+  conversationId: string;
+  clearedAt: string | null;
+  deletedAt: string | null;
+}
+
+export type ConversationVisibilityAcknowledgement =
+  | { success: true; visibility: ConversationVisibilityPayload }
+  | { success: false; error: string };
+
 export interface ClientToServerEvents {
   "message:send": (
     payload: unknown,
@@ -61,11 +71,26 @@ export interface ClientToServerEvents {
     payload: unknown,
     acknowledge?: (result: MessageStatusAcknowledgement) => void,
   ) => void;
+  "conversation:visibility:sync": (
+    payload: unknown,
+    acknowledge?: (result: ConversationVisibilityAcknowledgement) => void,
+  ) => void;
+  "conversation:visibility:clear": (
+    payload: unknown,
+    acknowledge?: (result: ConversationVisibilityAcknowledgement) => void,
+  ) => void;
+  "conversation:visibility:delete": (
+    payload: unknown,
+    acknowledge?: (result: ConversationVisibilityAcknowledgement) => void,
+  ) => void;
 }
 
 export interface ServerToClientEvents {
   "message:new": (message: TextMessagePayload) => void;
   "message:status": (status: MessageStatusPayload) => void;
+  "conversation:visibility": (
+    visibility: ConversationVisibilityPayload,
+  ) => void;
 }
 
 export interface InterServerEvents {}

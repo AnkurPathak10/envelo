@@ -58,11 +58,26 @@ import { useSocket, type SocketTextMessage } from '@/lib/socket/SocketContext';
 
 interface ChatScreenProps {
   conversationId: string;
+  hiddenBefore?: string | null;
   isSearchOpen?: boolean;
   searchQuery?: string;
 }
 
 type InitialHistoryState = 'loading' | 'loaded' | 'error' | 'not-found';
+
+function isAfterConversationCutoff(
+  createdAt: string,
+  hiddenBefore: string | null | undefined
+): boolean {
+  if (!hiddenBefore) return true;
+  const createdTime = Date.parse(createdAt);
+  const cutoffTime = Date.parse(hiddenBefore);
+  return (
+    !Number.isFinite(createdTime) ||
+    !Number.isFinite(cutoffTime) ||
+    createdTime > cutoffTime
+  );
+}
 
 function historyErrorMessage(error: unknown): string {
   return error instanceof ApiError
@@ -80,6 +95,24 @@ function withInitialStatus(
   };
 }
 
+function afterLocalCutoff<T extends { createdAt: string }>(
+  messages: T[],
+  hiddenBefore: string | null | undefined
+): T[] {
+  return messages.filter((message) =>
+    isAfterConversationCutoff(message.createdAt, hiddenBefore)
+  );
+}
+
+function newestCutoff(
+  first: string | null | undefined,
+  second: string | null | undefined
+): string | null {
+  if (!first) return second ?? null;
+  if (!second) return first;
+  return Date.parse(first) >= Date.parse(second) ? first : second;
+}
+
 function isCurrentAppViewVisible(): boolean {
   if (Platform.OS === 'web') {
     return typeof document !== 'undefined'
@@ -92,6 +125,7 @@ function isCurrentAppViewVisible(): boolean {
 
 export function ChatScreen({
   conversationId,
+  hiddenBefore = null,
   isSearchOpen = false,
   searchQuery = '',
 }: ChatScreenProps) {
@@ -316,17 +350,25 @@ export function ChatScreen({
         (error: unknown) => ({ ok: false as const, error })
       );
       const cached = await cachedPromise;
+      const cachedCutoff = newestCutoff(hiddenBefore, cached?.clearedAt);
+      const visibleCached = cached
+        ? {
+            clearedAt: cachedCutoff,
+            messages: afterLocalCutoff(cached.messages, cachedCutoff),
+            nextCursor: cached.nextCursor,
+          }
+        : null;
 
-      if (isActive && cached) {
+      if (isActive && visibleCached) {
         setMessages((current) =>
           mergeTextMessages(
             current.filter(
               (message) => message.conversationId === conversationId
             ),
-            cached.messages
+            visibleCached.messages
           )
         );
-        setNextCursor(cached.nextCursor);
+        setNextCursor(visibleCached.nextCursor);
         loadedConversationId.current = conversationId;
         if (isInitialLoad) requestScrollToEnd(false, true);
         setInitialState('loaded');
@@ -336,27 +378,37 @@ export function ChatScreen({
         const liveResult = await livePromise;
         if (!liveResult.ok) throw liveResult.error;
         const { page } = liveResult;
+        const liveCutoff = newestCutoff(hiddenBefore, page.clearedAt);
+        const visiblePage = {
+          clearedAt: liveCutoff,
+          messages: afterLocalCutoff(page.messages, liveCutoff),
+          nextCursor: page.nextCursor,
+        };
         if (user?.id) {
-          void cacheMessageHistoryPage(user.id, conversationId, page).catch(
-            () => undefined
-          );
+          void cacheMessageHistoryPage(
+            user.id,
+            conversationId,
+            visiblePage
+          ).catch(() => undefined);
         }
         if (!isActive) return;
-        acknowledgeDeliveredMessages(page.messages);
+        acknowledgeDeliveredMessages(visiblePage.messages);
         setMessages((current) =>
           mergeTextMessages(
             current.filter(
-              (message) => message.conversationId === conversationId
+              (message) =>
+                message.conversationId === conversationId &&
+                isAfterConversationCutoff(message.createdAt, liveCutoff)
             ),
-            page.messages
+            visiblePage.messages
           )
         );
         setNextCursor(
-          page.nextCursor === null
+          visiblePage.nextCursor === null
             ? null
-            : cached
-              ? cached.nextCursor
-              : page.nextCursor
+            : visibleCached
+              ? visibleCached.nextCursor
+              : visiblePage.nextCursor
         );
         loadedConversationId.current = conversationId;
         setInitialError(null);
@@ -382,7 +434,7 @@ export function ChatScreen({
         );
         if (isConnectivityError(error)) {
           setIsOffline(true);
-          if (cached || hasPendingMessages || !isInitialLoad) {
+          if (visibleCached || hasPendingMessages || !isInitialLoad) {
             loadedConversationId.current = conversationId;
             setInitialState('loaded');
             return;
@@ -405,6 +457,7 @@ export function ChatScreen({
   }, [
     acknowledgeDeliveredMessages,
     conversationId,
+    hiddenBefore,
     reloadVersion,
     requestScrollToEnd,
     user?.id,
@@ -421,12 +474,21 @@ export function ChatScreen({
     () =>
       subscribeToNewMessages((message) => {
         if (message.conversationId !== conversationId) return;
+        if (!isAfterConversationCutoff(message.createdAt, hiddenBefore)) {
+          return;
+        }
         setMessages((current) =>
           mergeTextMessages(current, [withInitialStatus(message, user?.id)])
         );
         requestScrollToEnd(true);
       }),
-    [conversationId, requestScrollToEnd, subscribeToNewMessages, user?.id]
+    [
+      conversationId,
+      hiddenBefore,
+      requestScrollToEnd,
+      subscribeToNewMessages,
+      user?.id,
+    ]
   );
 
   useEffect(() => {
@@ -434,7 +496,8 @@ export function ChatScreen({
       .filter(
         (message) =>
           message.conversationId === conversationId &&
-          message.senderId === user?.id
+          message.senderId === user?.id &&
+          isAfterConversationCutoff(message.createdAt, hiddenBefore)
       )
       .map((message) =>
         toPendingTextMessage(
@@ -465,6 +528,7 @@ export function ChatScreen({
     );
   }, [
     conversationId,
+    hiddenBefore,
     pendingMediaPreviewUris,
     pendingMessages,
     requestScrollToEnd,
@@ -508,7 +572,9 @@ export function ChatScreen({
     const timer = setTimeout(() => {
       void searchConversationMessages(conversationId, trimmedSearchQuery)
         .then((results) => {
-          if (!controller.signal.aborted) setSearchResults(results);
+          if (!controller.signal.aborted) {
+            setSearchResults(afterLocalCutoff(results, hiddenBefore));
+          }
         })
         .catch((error: unknown) => {
           if (!controller.signal.aborted) {
@@ -524,7 +590,13 @@ export function ChatScreen({
       controller.abort();
       clearTimeout(timer);
     };
-  }, [conversationId, isSearchOpen, requestScrollToEnd, trimmedSearchQuery]);
+  }, [
+    conversationId,
+    hiddenBefore,
+    isSearchOpen,
+    requestScrollToEnd,
+    trimmedSearchQuery,
+  ]);
 
   let latestIncomingMessageId: string | null = null;
   for (let index = renderedMessages.length - 1; index >= 0; index -= 1) {

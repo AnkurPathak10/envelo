@@ -4,9 +4,10 @@ import {
   refreshSessionFromStorage,
 } from '@/lib/api/client';
 import { getTokens } from '@/lib/auth/storage';
+import { Platform } from 'react-native';
 export interface AuthResponse {
   accessToken: string;
-  refreshToken: string;
+  refreshToken?: string;
   user: ApiUser;
 }
 export interface SignUpInput {
@@ -39,11 +40,17 @@ export function refreshSession(): Promise<AuthResponse | null> {
 }
 export async function logout(): Promise<void> {
   const tokens = await getTokens();
-  if (!tokens) return;
+  if (Platform.OS !== 'web' && !tokens?.refreshToken) return;
   await apiRequest<{ success: true }>('/api/auth/logout', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ refreshToken: tokens.refreshToken }),
+    headers:
+      Platform.OS === 'web'
+        ? undefined
+        : { 'Content-Type': 'application/json' },
+    body:
+      Platform.OS === 'web'
+        ? undefined
+        : JSON.stringify({ refreshToken: tokens?.refreshToken }),
     skipAuthRefresh: true,
   });
 }

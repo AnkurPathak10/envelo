@@ -3,6 +3,7 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { verifyPassword } from "@/lib/auth/password";
 import { signAccessToken, createRefreshTokenInDb } from "@/lib/auth/tokens";
+import { exposeRefreshToken, setWebRefreshCookie } from "@/lib/auth/webSession";
 
 const loginSchema = z.object({
   email: z
@@ -48,9 +49,9 @@ export async function POST(request: NextRequest) {
   const accessToken = signAccessToken(user.id);
   const refreshToken = await createRefreshTokenInDb(user.id);
 
-  return NextResponse.json({
+  const response = NextResponse.json({
     accessToken,
-    refreshToken,
+    refreshToken: exposeRefreshToken(request, refreshToken),
     user: {
       id: user.id,
       email: user.email,
@@ -58,4 +59,6 @@ export async function POST(request: NextRequest) {
       avatarUrl: user.avatarUrl,
     },
   });
+  setWebRefreshCookie(request, response, refreshToken);
+  return response;
 }

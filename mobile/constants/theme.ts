@@ -47,11 +47,13 @@ export const messagingPalette = {
   softBlush: '#FEE3E2',
   platinum: '#F1F0F1',
   white: '#FEFFFE',
+  warmReceipt: '#C45A27',
 } as const;
 
 type MessagingColors = typeof colors.light & {
   outgoingBubble: string;
   outgoingText: string;
+  outgoingStatus: string;
   unreadBadge: string;
   selectedTheme: string;
   onStateAction: string;
@@ -67,6 +69,7 @@ export const messagingColors: Record<'light' | 'dark', MessagingColors> = {
     border: messagingPalette.cottonRose,
     outgoingBubble: messagingPalette.softBlush,
     outgoingText: colors.light.textPrimary,
+    outgoingStatus: messagingPalette.warmReceipt,
     unreadBadge: messagingPalette.cottonRose,
     selectedTheme: messagingPalette.cottonRose,
     onStateAction: colors.light.textPrimary,
@@ -76,6 +79,7 @@ export const messagingColors: Record<'light' | 'dark', MessagingColors> = {
     onAccent: colors.light.textPrimary,
     outgoingBubble: messagingPalette.softBlush,
     outgoingText: colors.light.textPrimary,
+    outgoingStatus: messagingPalette.warmReceipt,
     unreadBadge: messagingPalette.cottonRose,
     selectedTheme: messagingPalette.cottonRose,
     onStateAction: colors.light.textPrimary,

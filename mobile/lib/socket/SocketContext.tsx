@@ -50,9 +50,20 @@ export interface MessageStatusUpdate {
   status: Extract<MessageStatus, 'DELIVERED' | 'READ'>;
 }
 
+export interface ConversationVisibilityUpdate {
+  conversationId: string;
+  clearedAt: string | null;
+  deletedAt: string | null;
+}
+
+export type ConversationVisibilityAcknowledgement =
+  | { success: true; visibility: ConversationVisibilityUpdate }
+  | { success: false; error: string };
+
 interface ServerToClientEvents {
   'message:new': (message: SocketTextMessage) => void;
   'message:status': (update: MessageStatusUpdate) => void;
+  'conversation:visibility': (update: ConversationVisibilityUpdate) => void;
 }
 
 interface ClientToServerEvents {
@@ -68,10 +79,24 @@ interface ClientToServerEvents {
     payload: { conversationId: string; upToMessageId: string },
     acknowledge: (result: MessageStatusAcknowledgement) => void
   ) => void;
+  'conversation:visibility:sync': (
+    payload: { conversationId: string },
+    acknowledge: (result: ConversationVisibilityAcknowledgement) => void
+  ) => void;
+  'conversation:visibility:clear': (
+    payload: { conversationId: string },
+    acknowledge: (result: ConversationVisibilityAcknowledgement) => void
+  ) => void;
+  'conversation:visibility:delete': (
+    payload: { conversationId: string },
+    acknowledge: (result: ConversationVisibilityAcknowledgement) => void
+  ) => void;
 }
 
 type NewMessageListener = ServerToClientEvents['message:new'];
 type MessageStatusListener = ServerToClientEvents['message:status'];
+type ConversationVisibilityListener =
+  ServerToClientEvents['conversation:visibility'];
 type EnveloSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 export type SocketConnectionState =
   | 'signed-out'
@@ -108,10 +133,22 @@ interface SocketContextValue {
     conversationId: string;
     upToMessageId: string;
   }) => Promise<MessageStatusAcknowledgement>;
+  syncConversationVisibility: (
+    conversationId: string
+  ) => Promise<ConversationVisibilityAcknowledgement>;
+  clearConversationAcrossDevices: (
+    conversationId: string
+  ) => Promise<ConversationVisibilityUpdate>;
+  deleteConversationAcrossDevices: (
+    conversationId: string
+  ) => Promise<ConversationVisibilityUpdate>;
   subscribeToNewMessages: (
     listener: ServerToClientEvents['message:new']
   ) => () => void;
   subscribeToMessageStatuses: (listener: MessageStatusListener) => () => void;
+  subscribeToConversationVisibility: (
+    listener: ConversationVisibilityListener
+  ) => () => void;
 }
 
 const SocketContext = createContext<SocketContextValue | undefined>(undefined);
@@ -159,6 +196,9 @@ export function SocketProvider({ children }: PropsWithChildren) {
   const socketRef = useRef<EnveloSocket | null>(null);
   const messageListenersRef = useRef(new Set<NewMessageListener>());
   const messageStatusListenersRef = useRef(new Set<MessageStatusListener>());
+  const conversationVisibilityListenersRef = useRef(
+    new Set<ConversationVisibilityListener>()
+  );
   const pendingDeliveredIdsRef = useRef(new Set<string>());
   const deliveryRetryCountRef = useRef(0);
   const deliveryFlushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
@@ -325,12 +365,20 @@ export function SocketProvider({ children }: PropsWithChildren) {
       for (const listener of messageStatusListenersRef.current)
         listener(update);
     };
+    const handleConversationVisibility: ConversationVisibilityListener = (
+      update
+    ) => {
+      for (const listener of conversationVisibilityListenersRef.current) {
+        listener(update);
+      }
+    };
 
     socket.on('connect', handleConnect);
     socket.on('disconnect', handleDisconnect);
     socket.on('connect_error', handleConnectError);
     socket.on('message:new', handleNewMessage);
     socket.on('message:status', handleMessageStatus);
+    socket.on('conversation:visibility', handleConversationVisibility);
     socket.io.on('reconnect_attempt', handleReconnectAttempt);
     socket.io.on('reconnect_failed', handleReconnectFailed);
     socket.connect();
@@ -341,6 +389,7 @@ export function SocketProvider({ children }: PropsWithChildren) {
       socket.off('connect_error', handleConnectError);
       socket.off('message:new', handleNewMessage);
       socket.off('message:status', handleMessageStatus);
+      socket.off('conversation:visibility', handleConversationVisibility);
       socket.io.off('reconnect_attempt', handleReconnectAttempt);
       socket.io.off('reconnect_failed', handleReconnectFailed);
       socket.disconnect();
@@ -762,6 +811,107 @@ export function SocketProvider({ children }: PropsWithChildren) {
     []
   );
 
+  const syncConversationVisibility = useCallback(
+    (conversationId: string): Promise<ConversationVisibilityAcknowledgement> =>
+      new Promise((resolve, reject) => {
+        const socket = socketRef.current;
+        if (!socket?.connected) {
+          reject(new Error('Socket is disconnected.'));
+          return;
+        }
+
+        const cleanup = (): void => {
+          clearTimeout(timeout);
+          socket.off('disconnect', handleDisconnect);
+        };
+        const handleDisconnect = (): void => {
+          cleanup();
+          reject(new Error('Socket disconnected before synchronization.'));
+        };
+        const timeout = setTimeout(() => {
+          cleanup();
+          reject(new Error('Conversation synchronization timed out.'));
+        }, SEND_TIMEOUT_MS);
+
+        socket.once('disconnect', handleDisconnect);
+        socket.emit(
+          'conversation:visibility:sync',
+          { conversationId },
+          (result) => {
+            cleanup();
+            resolve(result);
+          }
+        );
+      }),
+    []
+  );
+
+  const mutateConversationVisibility = useCallback(
+    (
+      event: 'conversation:visibility:clear' | 'conversation:visibility:delete',
+      conversationId: string
+    ): Promise<ConversationVisibilityUpdate> =>
+      new Promise((resolve, reject) => {
+        const socket = socketRef.current;
+        if (!socket?.connected) {
+          reject(new Error('Socket is disconnected.'));
+          return;
+        }
+
+        const cleanup = (): void => {
+          clearTimeout(timeout);
+          socket.off('disconnect', handleDisconnect);
+        };
+        const handleDisconnect = (): void => {
+          cleanup();
+          reject(new Error('Socket disconnected before saving the change.'));
+        };
+        const timeout = setTimeout(() => {
+          cleanup();
+          reject(new Error('Conversation update timed out.'));
+        }, SEND_TIMEOUT_MS);
+
+        socket.once('disconnect', handleDisconnect);
+        socket.emit(event, { conversationId }, (result) => {
+          cleanup();
+          if (!result.success) {
+            reject(new Error(result.error));
+            return;
+          }
+          resolve(result.visibility);
+        });
+      }),
+    []
+  );
+
+  const clearConversationAcrossDevices = useCallback(
+    (conversationId: string): Promise<ConversationVisibilityUpdate> =>
+      mutateConversationVisibility(
+        'conversation:visibility:clear',
+        conversationId
+      ),
+    [mutateConversationVisibility]
+  );
+
+  const deleteConversationAcrossDevices = useCallback(
+    (conversationId: string): Promise<ConversationVisibilityUpdate> =>
+      mutateConversationVisibility(
+        'conversation:visibility:delete',
+        conversationId
+      ),
+    [mutateConversationVisibility]
+  );
+
+  const subscribeToConversationVisibility = useCallback(
+    (listener: ConversationVisibilityListener): (() => void) => {
+      conversationVisibilityListenersRef.current.add(listener);
+      return () => {
+        conversationVisibilityListenersRef.current.delete(listener);
+      };
+    },
+    []
+  );
+
   const value = useMemo(
     () => ({
       connectionState,
@@ -771,10 +921,14 @@ export function SocketProvider({ children }: PropsWithChildren) {
       discardConversationQueue,
       acknowledgeDeliveredMessages,
       markConversationRead,
+      syncConversationVisibility,
+      clearConversationAcrossDevices,
+      deleteConversationAcrossDevices,
       retryConnection,
       sendMessage,
       subscribeToNewMessages,
       subscribeToMessageStatuses,
+      subscribeToConversationVisibility,
     }),
     [
       connectionEpoch,
@@ -784,10 +938,14 @@ export function SocketProvider({ children }: PropsWithChildren) {
       discardConversationQueue,
       acknowledgeDeliveredMessages,
       markConversationRead,
+      syncConversationVisibility,
+      clearConversationAcrossDevices,
+      deleteConversationAcrossDevices,
       retryConnection,
       sendMessage,
       subscribeToNewMessages,
       subscribeToMessageStatuses,
+      subscribeToConversationVisibility,
     ]
   );
 

@@ -2,15 +2,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { hashRefreshToken } from "@/lib/auth/tokens";
+import { clearWebRefreshCookie, readRefreshToken } from "@/lib/auth/webSession";
 
 const logoutSchema = z.object({
-  refreshToken: z.string().min(1, "Refresh token is required"),
+  refreshToken: z.string().min(1, "Refresh token is required").optional(),
 });
 
 export async function POST(request: NextRequest) {
   let body: unknown;
   try {
-    body = await request.json();
+    body = await request.json().catch(() => ({}));
   } catch {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
@@ -23,7 +24,12 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { refreshToken: rawToken } = parsed.data;
+  const rawToken = readRefreshToken(request, parsed.data.refreshToken);
+  if (!rawToken) {
+    const response = NextResponse.json({ success: true }, { status: 200 });
+    clearWebRefreshCookie(request, response);
+    return response;
+  }
   const tokenHash = hashRefreshToken(rawToken);
 
   // Mark matching token as revoked if found and not already revoked.
@@ -38,5 +44,7 @@ export async function POST(request: NextRequest) {
     },
   });
 
-  return NextResponse.json({ success: true }, { status: 200 });
+  const response = NextResponse.json({ success: true }, { status: 200 });
+  clearWebRefreshCookie(request, response);
+  return response;
 }

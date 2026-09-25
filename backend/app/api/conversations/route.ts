@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   conversationListSelect,
   hasOtherParticipant,
+  isConversationVisible,
   toConversationListItem,
 } from "@/lib/conversations";
 import { requireAuth } from "@/lib/auth/requireAuth";
@@ -22,9 +23,35 @@ export async function GET(request: NextRequest) {
     select: conversationListSelect(userId),
   });
 
+  const visibleConversations = conversations.filter(
+    (conversation) =>
+      hasOtherParticipant(conversation, userId) &&
+      isConversationVisible(conversation, userId),
+  );
+  const unreadCounts = await Promise.all(
+    visibleConversations.map((conversation) => {
+      const participation = conversation.participants.find(
+        ({ user }) => user.id === userId,
+      );
+      if (!participation?.clearedAt) return conversation._count.messages;
+      return prisma.message.count({
+        where: {
+          conversationId: conversation.id,
+          createdAt: { gt: participation.clearedAt },
+          statuses: {
+            some: {
+              userId,
+              status: { not: "READ" },
+            },
+          },
+        },
+      });
+    }),
+  );
+
   return NextResponse.json({
-    conversations: conversations
-      .filter((conversation) => hasOtherParticipant(conversation, userId))
-      .map((conversation) => toConversationListItem(conversation, userId)),
+    conversations: visibleConversations.map((conversation, index) =>
+      toConversationListItem(conversation, userId, unreadCounts[index]),
+    ),
   });
 }

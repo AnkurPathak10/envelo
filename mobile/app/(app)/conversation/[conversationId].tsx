@@ -1,5 +1,5 @@
 import { Stack, router, useLocalSearchParams } from 'expo-router';
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Alert, StyleSheet, View } from 'react-native';
 
 import { ChatHeader } from '@/components/chat/chat-header';
@@ -18,14 +18,21 @@ function firstParam(value: string | string[] | undefined): string {
 
 export default function ConversationScreen() {
   const { user } = useAuth();
-  const { discardConversationQueue } = useSocket();
+  const {
+    clearConversationAcrossDevices,
+    deleteConversationAcrossDevices,
+    discardConversationQueue,
+    subscribeToConversationVisibility,
+  } = useSocket();
   const params = useLocalSearchParams<{
     conversationId?: string | string[];
+    clearedAt?: string | string[];
     participantAvatarUrl?: string | string[];
     participantId?: string | string[];
     participantName?: string | string[];
   }>();
   const conversationId = firstParam(params.conversationId);
+  const initialClearedAt = firstParam(params.clearedAt).trim() || null;
   const participantAvatarUrl = firstParam(params.participantAvatarUrl).trim();
   const participantId = firstParam(params.participantId).trim();
   const participantName =
@@ -34,18 +41,47 @@ export default function ConversationScreen() {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [historyVersion, setHistoryVersion] = useState(0);
+  const [clearedAt, setClearedAt] = useState<string | null>(initialClearedAt);
 
-  const clearLocalConversationState = async (): Promise<void> => {
-    await discardConversationQueue(conversationId);
-    if (user?.id) {
-      await removeCachedMessageHistory(user.id, conversationId);
-    }
-  };
+  const clearLocalConversationState = useCallback(async (): Promise<void> => {
+    await Promise.allSettled([
+      discardConversationQueue(conversationId),
+      user?.id
+        ? removeCachedMessageHistory(user.id, conversationId)
+        : Promise.resolve(),
+    ]);
+  }, [conversationId, discardConversationQueue, user?.id]);
+
+  useEffect(
+    () =>
+      subscribeToConversationVisibility((visibility) => {
+        if (visibility.conversationId !== conversationId) return;
+        if (!visibility.deletedAt && visibility.clearedAt === clearedAt) {
+          return;
+        }
+        void clearLocalConversationState().then(() => {
+          if (visibility.deletedAt) {
+            router.back();
+            return;
+          }
+          setClearedAt(visibility.clearedAt);
+          setSearchQuery('');
+          setIsSearchOpen(false);
+          setHistoryVersion((current) => current + 1);
+        });
+      }),
+    [
+      clearLocalConversationState,
+      clearedAt,
+      conversationId,
+      subscribeToConversationVisibility,
+    ]
+  );
 
   const confirmClearChat = (): void => {
     Alert.alert(
       'Clear chat?',
-      'This removes every message in this conversation for both people. The conversation itself will remain.',
+      'Messages will be cleared from your account on all of your devices. The other person will keep their copy.',
       [
         { style: 'cancel', text: 'Cancel' },
         {
@@ -53,8 +89,16 @@ export default function ConversationScreen() {
           text: 'Clear chat',
           onPress: () => {
             setIsBusy(true);
-            void clearConversationMessages(conversationId)
-              .then(clearLocalConversationState)
+            void clearConversationAcrossDevices(conversationId)
+              .catch(async () => ({
+                conversationId,
+                clearedAt: await clearConversationMessages(conversationId),
+                deletedAt: null,
+              }))
+              .then(async (visibility) => {
+                setClearedAt(visibility.clearedAt);
+                await clearLocalConversationState();
+              })
               .then(() => {
                 setSearchQuery('');
                 setIsSearchOpen(false);
@@ -76,7 +120,7 @@ export default function ConversationScreen() {
   const confirmDeleteChat = (): void => {
     Alert.alert(
       'Delete chat?',
-      'This permanently deletes the conversation and its messages for both people.',
+      'This removes the conversation from your account on all of your devices. The other person will keep their copy, and the chat will reappear if a new message arrives.',
       [
         { style: 'cancel', text: 'Cancel' },
         {
@@ -84,9 +128,15 @@ export default function ConversationScreen() {
           text: 'Delete chat',
           onPress: () => {
             setIsBusy(true);
-            void deleteConversation(conversationId)
-              .then(clearLocalConversationState)
-              .then(() => router.back())
+            void deleteConversationAcrossDevices(conversationId)
+              .catch(async () => {
+                const visibility = await deleteConversation(conversationId);
+                return { conversationId, ...visibility };
+              })
+              .then(async () => {
+                await clearLocalConversationState();
+                router.back();
+              })
               .catch((error: unknown) => {
                 Alert.alert(
                   'Unable to delete chat',
@@ -122,6 +172,7 @@ export default function ConversationScreen() {
       />
       <ChatScreen
         conversationId={conversationId}
+        hiddenBefore={clearedAt}
         isSearchOpen={isSearchOpen}
         key={`${conversationId}:${historyVersion}`}
         searchQuery={isSearchOpen ? searchQuery : ''}
@@ -130,4 +181,6 @@ export default function ConversationScreen() {
   );
 }
 
-const styles = StyleSheet.create({ container: { flex: 1 } });
+const styles = StyleSheet.create({
+  container: { flex: 1 },
+});

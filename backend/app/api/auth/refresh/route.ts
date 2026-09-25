@@ -6,9 +6,15 @@ import {
   signAccessToken,
   createRefreshTokenInDb,
 } from "@/lib/auth/tokens";
+import {
+  clearWebRefreshCookie,
+  exposeRefreshToken,
+  readRefreshToken,
+  setWebRefreshCookie,
+} from "@/lib/auth/webSession";
 
 const refreshSchema = z.object({
-  refreshToken: z.string().min(1, "Refresh token is required"),
+  refreshToken: z.string().min(1, "Refresh token is required").optional(),
 });
 
 const INVALID_REFRESH_TOKEN_ERROR = "Invalid or expired refresh token";
@@ -16,7 +22,7 @@ const INVALID_REFRESH_TOKEN_ERROR = "Invalid or expired refresh token";
 export async function POST(request: NextRequest) {
   let body: unknown;
   try {
-    body = await request.json();
+    body = await request.json().catch(() => ({}));
   } catch {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
@@ -29,7 +35,15 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { refreshToken: rawToken } = parsed.data;
+  const rawToken = readRefreshToken(request, parsed.data.refreshToken);
+  if (!rawToken) {
+    const response = NextResponse.json(
+      { error: INVALID_REFRESH_TOKEN_ERROR },
+      { status: 401 },
+    );
+    clearWebRefreshCookie(request, response);
+    return response;
+  }
   const tokenHash = hashRefreshToken(rawToken);
 
   const existingToken = await prisma.refreshToken.findUnique({
@@ -51,10 +65,12 @@ export async function POST(request: NextRequest) {
     existingToken.revokedAt !== null ||
     existingToken.expiresAt <= new Date()
   ) {
-    return NextResponse.json(
+    const response = NextResponse.json(
       { error: INVALID_REFRESH_TOKEN_ERROR },
       { status: 401 },
     );
+    clearWebRefreshCookie(request, response);
+    return response;
   }
 
   // Rotate: revoke the existing token so it can never be used again
@@ -66,9 +82,11 @@ export async function POST(request: NextRequest) {
   const newAccessToken = signAccessToken(existingToken.userId);
   const newRefreshToken = await createRefreshTokenInDb(existingToken.userId);
 
-  return NextResponse.json({
+  const response = NextResponse.json({
     accessToken: newAccessToken,
-    refreshToken: newRefreshToken,
+    refreshToken: exposeRefreshToken(request, newRefreshToken),
     user: existingToken.user,
   });
+  setWebRefreshCookie(request, response, newRefreshToken);
+  return response;
 }

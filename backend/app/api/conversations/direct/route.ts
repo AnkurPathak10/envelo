@@ -92,6 +92,21 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  await prisma.conversationParticipant.update({
+    where: {
+      conversationId_userId: { conversationId: conversation.id, userId },
+    },
+    data: { deletedAt: null },
+    select: { id: true },
+  });
+  conversation = await findDirectConversation(directKey);
+  if (!conversation) {
+    return NextResponse.json(
+      { error: "Conversation not found" },
+      { status: 404 },
+    );
+  }
+
   return NextResponse.json({
     conversation: toCreatedDirectConversation(conversation, userId),
   });

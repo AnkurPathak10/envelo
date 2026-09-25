@@ -11,6 +11,7 @@ export interface ConversationListItem {
   id: string;
   createdAt: string;
   updatedAt: string;
+  clearedAt: string | null;
   participant: ConversationParticipant;
   lastMessage: {
     id: string;
@@ -37,6 +38,7 @@ export interface TextMessage {
 }
 
 export interface MessageHistoryPage {
+  clearedAt: string | null;
   messages: TextMessage[];
   nextCursor: string | null;
 }
@@ -53,6 +55,7 @@ interface DirectConversationResponse {
   conversation: {
     id: string;
     createdAt: string;
+    clearedAt: string | null;
     participant: ConversationParticipant;
   };
 }
@@ -75,6 +78,7 @@ export async function searchUsers(
 export async function createDirectConversation(participantId: string): Promise<{
   id: string;
   createdAt: string;
+  clearedAt: string | null;
   participant: ConversationParticipant;
 }> {
   const response = await apiRequest<DirectConversationResponse>(
@@ -110,18 +114,18 @@ export async function searchConversationMessages(
 
 export async function clearConversationMessages(
   conversationId: string
-): Promise<number> {
-  const response = await apiRequest<{ cleared: number }>(
+): Promise<string> {
+  const response = await apiRequest<{ clearedAt: string }>(
     `/api/conversations/${encodeURIComponent(conversationId)}/messages`,
     { method: 'DELETE' }
   );
-  return response.cleared;
+  return response.clearedAt;
 }
 
 export async function deleteConversation(
   conversationId: string
-): Promise<void> {
-  await apiRequest<{ deleted: true }>(
+): Promise<{ clearedAt: string; deletedAt: string }> {
+  return apiRequest<{ clearedAt: string; deletedAt: string }>(
     `/api/conversations/${encodeURIComponent(conversationId)}`,
     { method: 'DELETE' }
   );

@@ -88,6 +88,7 @@ function isMessageCacheEntry(
     candidate.userId === userId &&
     candidate.conversationId === conversationId &&
     isDateString(candidate.cachedAt) &&
+    (candidate.clearedAt === null || isDateString(candidate.clearedAt)) &&
     (candidate.nextCursor === null ||
       typeof candidate.nextCursor === 'string') &&
     Array.isArray(candidate.messages) &&
@@ -173,7 +174,11 @@ export function getCachedMessageHistory(
     const entry = await readEntry(userId, conversationId);
     if (!entry) return null;
     await touchConversation(userId, conversationId);
-    return { messages: entry.messages, nextCursor: entry.nextCursor };
+    return {
+      clearedAt: entry.clearedAt,
+      messages: entry.messages,
+      nextCursor: entry.nextCursor,
+    };
   });
 }
 
@@ -185,7 +190,11 @@ export function cacheMessageHistoryPage(
 ): Promise<void> {
   return mutateStorage(async () => {
     const existing = await readEntry(userId, conversationId);
-    const existingMessages = mergeTextMessages([], existing?.messages ?? []);
+    const hasSameCutoff = existing?.clearedAt === page.clearedAt;
+    const existingMessages = mergeTextMessages(
+      [],
+      hasSameCutoff ? (existing?.messages ?? []) : []
+    );
     const merged =
       !cursor && page.nextCursor === null
         ? mergeTextMessages([], page.messages)
@@ -201,6 +210,7 @@ export function cacheMessageHistoryPage(
       !cursor &&
       page.nextCursor !== null &&
       existing?.nextCursor === null &&
+      hasSameCutoff &&
       existing.messages.some((message) => message.id === page.nextCursor);
     const hasEarlierMessages =
       discardedMessages ||
@@ -210,6 +220,7 @@ export function cacheMessageHistoryPage(
     const entry: MessageCacheEntry = {
       userId,
       conversationId,
+      clearedAt: page.clearedAt,
       messages,
       nextCursor,
       cachedAt: new Date().toISOString(),

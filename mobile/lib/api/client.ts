@@ -1,4 +1,5 @@
 import { clearTokens, getTokens, saveTokens } from '@/lib/auth/storage';
+import { Platform } from 'react-native';
 
 export interface ApiUser {
   id: string;
@@ -8,7 +9,7 @@ export interface ApiUser {
 }
 interface RefreshResponse {
   accessToken: string;
-  refreshToken: string;
+  refreshToken?: string;
   user: ApiUser;
 }
 interface ApiRequestOptions extends RequestInit {
@@ -29,8 +30,38 @@ export function isConnectivityError(error: unknown): error is ApiError {
   return error instanceof ApiError && error.status === 0;
 }
 
-const apiUrl = process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, '');
-if (!apiUrl) throw new Error('EXPO_PUBLIC_API_URL must be set in mobile/.env');
+function configuredApiBaseUrl(): string {
+  const value = process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, '');
+  if (!value) {
+    throw new Error('EXPO_PUBLIC_API_URL must be set in mobile/.env');
+  }
+  return value;
+}
+
+const configuredApiUrl = configuredApiBaseUrl();
+
+function resolveApiUrl(): string {
+  if (Platform.OS !== 'web' || typeof window === 'undefined') {
+    return configuredApiUrl;
+  }
+  if (
+    window.location.hostname !== 'localhost' &&
+    window.location.hostname !== '127.0.0.1'
+  ) {
+    return configuredApiUrl;
+  }
+
+  const url = new URL(configuredApiUrl);
+  const isPrivateLanHost =
+    url.hostname.startsWith('10.') ||
+    url.hostname.startsWith('192.168.') ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(url.hostname);
+  if (!isPrivateLanHost) return configuredApiUrl;
+  url.hostname = window.location.hostname;
+  return url.toString().replace(/\/$/, '');
+}
+
+const apiUrl = resolveApiUrl();
 let onSessionExpired: (() => void) | undefined;
 export function setSessionExpiredHandler(
   handler: (() => void) | undefined
@@ -58,7 +89,15 @@ async function fetchApi(
   options: RequestInit = {}
 ): Promise<Response> {
   try {
-    return await fetch(`${apiUrl}${path}`, options);
+    const requestHeaders = new Headers(options.headers);
+    if (Platform.OS === 'web') {
+      requestHeaders.set('X-Envelo-Platform', 'web');
+    }
+    return await fetch(`${apiUrl}${path}`, {
+      ...options,
+      credentials: Platform.OS === 'web' ? 'include' : options.credentials,
+      headers: requestHeaders,
+    });
   } catch {
     throw new ApiError(
       'Unable to reach the server. Check your connection and try again.',
@@ -68,11 +107,17 @@ async function fetchApi(
 }
 async function refreshStoredTokens(): Promise<RefreshResponse | null> {
   const tokens = await getTokens();
-  if (!tokens) return null;
+  if (Platform.OS !== 'web' && !tokens?.refreshToken) return null;
   const response = await fetchApi('/api/auth/refresh', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ refreshToken: tokens.refreshToken }),
+    headers:
+      Platform.OS === 'web'
+        ? undefined
+        : { 'Content-Type': 'application/json' },
+    body:
+      Platform.OS === 'web'
+        ? undefined
+        : JSON.stringify({ refreshToken: tokens?.refreshToken }),
   });
   if (!response.ok) return null;
   const refreshed = (await response.json()) as RefreshResponse;

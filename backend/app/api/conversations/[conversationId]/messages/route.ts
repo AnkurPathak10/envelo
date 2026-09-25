@@ -40,7 +40,7 @@ export async function GET(request: NextRequest, context: MessageRouteContext) {
 
   const participation = await prisma.conversationParticipant.findUnique({
     where: { conversationId_userId: { conversationId, userId } },
-    select: { id: true },
+    select: { clearedAt: true },
   });
   if (!participation) {
     return NextResponse.json(
@@ -62,6 +62,9 @@ export async function GET(request: NextRequest, context: MessageRouteContext) {
     const matches = await prisma.message.findMany({
       where: {
         conversationId,
+        createdAt: participation.clearedAt
+          ? { gt: participation.clearedAt }
+          : undefined,
         content: { contains: query, mode: "insensitive" },
       },
       orderBy: [{ createdAt: "asc" }, { id: "asc" }],
@@ -70,6 +73,7 @@ export async function GET(request: NextRequest, context: MessageRouteContext) {
     });
 
     return NextResponse.json({
+      clearedAt: participation.clearedAt?.toISOString() ?? null,
       messages: matches.map(toMessageHistoryItem),
       nextCursor: null,
     });
@@ -77,7 +81,13 @@ export async function GET(request: NextRequest, context: MessageRouteContext) {
 
   if (cursor) {
     const cursorMessage = await prisma.message.findFirst({
-      where: { id: cursor, conversationId },
+      where: {
+        id: cursor,
+        conversationId,
+        createdAt: participation.clearedAt
+          ? { gt: participation.clearedAt }
+          : undefined,
+      },
       select: { id: true },
     });
     if (!cursorMessage) {
@@ -89,7 +99,12 @@ export async function GET(request: NextRequest, context: MessageRouteContext) {
   }
 
   const records = await prisma.message.findMany({
-    where: { conversationId },
+    where: {
+      conversationId,
+      createdAt: participation.clearedAt
+        ? { gt: participation.clearedAt }
+        : undefined,
+    },
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     cursor: cursor ? { id: cursor } : undefined,
     skip: cursor ? 1 : undefined,
@@ -102,6 +117,7 @@ export async function GET(request: NextRequest, context: MessageRouteContext) {
   const nextCursor = hasNextPage ? page[page.length - 1].id : null;
 
   return NextResponse.json({
+    clearedAt: participation.clearedAt?.toISOString() ?? null,
     messages: page.reverse().map(toMessageHistoryItem),
     nextCursor,
   });
@@ -127,28 +143,17 @@ export async function DELETE(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const participation = await prisma.conversationParticipant.findUnique({
-    where: { conversationId_userId: { conversationId, userId } },
-    select: { id: true },
+  const clearedAt = new Date();
+  const result = await prisma.conversationParticipant.updateMany({
+    where: { conversationId, userId },
+    data: { clearedAt, deletedAt: null },
   });
-  if (!participation) {
+  if (result.count === 0) {
     return NextResponse.json(
       { error: "Conversation not found" },
       { status: 404 },
     );
   }
 
-  const cleared = await prisma.$transaction(async (transaction) => {
-    const result = await transaction.message.deleteMany({
-      where: { conversationId },
-    });
-    await transaction.conversation.update({
-      where: { id: conversationId },
-      data: { updatedAt: new Date() },
-      select: { id: true },
-    });
-    return result.count;
-  });
-
-  return NextResponse.json({ cleared });
+  return NextResponse.json({ clearedAt: clearedAt.toISOString() });
 }

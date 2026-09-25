@@ -8,7 +8,7 @@ const webTokens = new Map<string, string>();
 
 export interface AuthTokens {
   accessToken: string;
-  refreshToken: string;
+  refreshToken: string | null;
   userId: string;
 }
 
@@ -18,8 +18,12 @@ function isAuthTokens(value: unknown): value is AuthTokens {
   return (
     typeof candidate.accessToken === 'string' &&
     candidate.accessToken.length > 0 &&
-    typeof candidate.refreshToken === 'string' &&
-    candidate.refreshToken.length > 0 &&
+    (Platform.OS === 'web'
+      ? candidate.refreshToken === null ||
+        (typeof candidate.refreshToken === 'string' &&
+          candidate.refreshToken.length > 0)
+      : typeof candidate.refreshToken === 'string' &&
+        candidate.refreshToken.length > 0) &&
     typeof candidate.userId === 'string' &&
     candidate.userId.length > 0
   );
@@ -67,14 +71,18 @@ export async function getTokens(): Promise<AuthTokens | null> {
 }
 
 export async function saveTokens(
-  tokens: Pick<AuthTokens, 'accessToken' | 'refreshToken'>,
+  tokens: { accessToken: string; refreshToken?: string | null },
   userId: string
 ): Promise<void> {
+  if (Platform.OS !== 'web' && !tokens.refreshToken) {
+    throw new Error('Native authentication requires a refresh token.');
+  }
   await setItem(
     AUTH_SESSION_KEY,
     JSON.stringify({
       accessToken: tokens.accessToken,
-      refreshToken: tokens.refreshToken,
+      refreshToken:
+        Platform.OS === 'web' ? null : (tokens.refreshToken ?? null),
       userId,
     } satisfies AuthTokens)
   );

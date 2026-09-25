@@ -4,6 +4,7 @@ import { createServer } from "node:http";
 import { Server } from "socket.io";
 
 import { verifySocketToken } from "./auth/verifySocketToken";
+import { registerConversationVisibilityHandler } from "./events/conversationVisibility";
 import { registerMessageDeliveredHandler } from "./events/messageDelivered";
 import { registerMessageReadHandler } from "./events/messageRead";
 import { registerMessageHandlers } from "./events/messages";
@@ -36,6 +37,7 @@ io.on("connection", (socket) => {
   registerMessageHandlers(io, socket);
   registerMessageDeliveredHandler(io, socket);
   registerMessageReadHandler(io, socket);
+  registerConversationVisibilityHandler(io, socket);
 
   console.log(`Socket connected: ${socket.id}, user: ${socket.data.userId}`);
 

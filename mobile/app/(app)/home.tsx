@@ -37,7 +37,10 @@ import {
   getCachedConversations,
   saveCachedConversations,
 } from '@/lib/cache/conversationCache';
-import { retainCachedMessageHistories } from '@/lib/cache/messageCache';
+import {
+  removeCachedMessageHistory,
+  retainCachedMessageHistories,
+} from '@/lib/cache/messageCache';
 import {
   type MessageStatusUpdate,
   type SocketTextMessage,
@@ -128,8 +131,12 @@ export default function HomeScreen() {
   const { signOut, user } = useAuth();
   const {
     acknowledgeDeliveredMessages,
+    connectionEpoch,
+    discardConversationQueue,
+    subscribeToConversationVisibility,
     subscribeToMessageStatuses,
     subscribeToNewMessages,
+    syncConversationVisibility,
   } = useSocket();
   const isFocused = useIsFocused();
   const [conversations, setConversations] = useState<ConversationListItem[]>(
@@ -160,12 +167,48 @@ export default function HomeScreen() {
   const isMounted = useRef(true);
   const conversationsRef = useRef<ConversationListItem[]>([]);
   const liveRevision = useRef(0);
+  const observedConnectionEpoch = useRef(0);
   const insets = useSafeAreaInsets();
   const trimmedSearchQuery = searchQuery.trim();
   const scheme = useAppColorScheme();
   const { preference, setPreference } = useAppTheme();
   const c = colors[scheme];
   const styles = createStyles(c);
+
+  useEffect(() => {
+    if (
+      connectionEpoch === 0 ||
+      observedConnectionEpoch.current === connectionEpoch
+    ) {
+      return;
+    }
+    observedConnectionEpoch.current = connectionEpoch;
+    setReloadVersion((version) => version + 1);
+  }, [connectionEpoch]);
+
+  useEffect(() => {
+    if (Platform.OS === 'web') {
+      if (typeof document === 'undefined' || typeof window === 'undefined') {
+        return;
+      }
+      const refreshVisibleInbox = (): void => {
+        if (document.visibilityState === 'visible') {
+          setReloadVersion((version) => version + 1);
+        }
+      };
+      document.addEventListener('visibilitychange', refreshVisibleInbox);
+      window.addEventListener('focus', refreshVisibleInbox);
+      return () => {
+        document.removeEventListener('visibilitychange', refreshVisibleInbox);
+        window.removeEventListener('focus', refreshVisibleInbox);
+      };
+    }
+
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') setReloadVersion((version) => version + 1);
+    });
+    return () => subscription.remove();
+  }, []);
 
   const replaceConversations = useCallback(
     (items: ConversationListItem[], persist: boolean): void => {
@@ -213,6 +256,7 @@ export default function HomeScreen() {
         pathname: '/(app)/conversation/[conversationId]',
         params: {
           conversationId: conversation.id,
+          clearedAt: conversation.clearedAt ?? '',
           participantAvatarUrl: conversation.participant.avatarUrl ?? '',
           participantId: conversation.participant.id,
           participantName: conversation.participant.displayName,
@@ -270,30 +314,35 @@ export default function HomeScreen() {
     };
   }, [searchVersion, trimmedSearchQuery]);
 
-  const chooseUser = useCallback(async (participantId: string) => {
-    setCreatingUserId(participantId);
-    setCreationErrorMessage(null);
-    try {
-      const conversation = await createDirectConversation(participantId);
-      if (!isMounted.current) return;
-      setSearchQuery('');
-      router.push({
-        pathname: '/(app)/conversation/[conversationId]',
-        params: {
-          conversationId: conversation.id,
-          participantAvatarUrl: conversation.participant.avatarUrl ?? '',
-          participantId: conversation.participant.id,
-          participantName: conversation.participant.displayName,
-        },
-      });
-    } catch (error: unknown) {
-      if (isMounted.current) {
-        setCreationErrorMessage(getSearchErrorMessage(error));
+  const chooseUser = useCallback(
+    async (participantId: string) => {
+      setCreatingUserId(participantId);
+      setCreationErrorMessage(null);
+      try {
+        const conversation = await createDirectConversation(participantId);
+        void syncConversationVisibility(conversation.id).catch(() => undefined);
+        if (!isMounted.current) return;
+        setSearchQuery('');
+        router.push({
+          pathname: '/(app)/conversation/[conversationId]',
+          params: {
+            conversationId: conversation.id,
+            clearedAt: conversation.clearedAt ?? '',
+            participantAvatarUrl: conversation.participant.avatarUrl ?? '',
+            participantId: conversation.participant.id,
+            participantName: conversation.participant.displayName,
+          },
+        });
+      } catch (error: unknown) {
+        if (isMounted.current) {
+          setCreationErrorMessage(getSearchErrorMessage(error));
+        }
+      } finally {
+        if (isMounted.current) setCreatingUserId(null);
       }
-    } finally {
-      if (isMounted.current) setCreatingUserId(null);
-    }
-  }, []);
+    },
+    [syncConversationVisibility]
+  );
 
   const retrySearch = useCallback(() => {
     setSearchVersion((version) => version + 1);
@@ -382,13 +431,69 @@ export default function HomeScreen() {
         });
       }
     );
+    const unsubscribeVisibility = subscribeToConversationVisibility(
+      (visibility) => {
+        const existing = conversationsRef.current.find(
+          (conversation) => conversation.id === visibility.conversationId
+        );
+        const shouldInvalidateLocalState = Boolean(
+          visibility.deletedAt ||
+          (existing && existing.clearedAt !== visibility.clearedAt)
+        );
+        updateLiveConversations((current) => {
+          if (visibility.deletedAt) {
+            return current.filter(
+              (conversation) => conversation.id !== visibility.conversationId
+            );
+          }
+
+          return current.map((conversation) =>
+            conversation.id === visibility.conversationId
+              ? conversation.clearedAt === visibility.clearedAt
+                ? conversation
+                : (() => {
+                    const lastMessageIsVisible = Boolean(
+                      conversation.lastMessage &&
+                      (!visibility.clearedAt ||
+                        Date.parse(conversation.lastMessage.createdAt) >
+                          Date.parse(visibility.clearedAt))
+                    );
+                    return {
+                      ...conversation,
+                      clearedAt: visibility.clearedAt,
+                      lastMessage: lastMessageIsVisible
+                        ? conversation.lastMessage
+                        : null,
+                      unreadCount: lastMessageIsVisible
+                        ? conversation.unreadCount
+                        : 0,
+                    };
+                  })()
+              : conversation
+          );
+        });
+        if (shouldInvalidateLocalState) {
+          void discardConversationQueue(visibility.conversationId);
+          void removeCachedMessageHistory(
+            user.id,
+            visibility.conversationId
+          ).catch(() => undefined);
+        }
+        if (!visibility.deletedAt && !existing && isFocused) {
+          setReloadVersion((version) => version + 1);
+        }
+      }
+    );
 
     return () => {
       unsubscribeMessages();
       unsubscribeStatuses();
+      unsubscribeVisibility();
     };
   }, [
+    discardConversationQueue,
     isFocused,
+    subscribeToConversationVisibility,
     subscribeToMessageStatuses,
     subscribeToNewMessages,
     updateLiveConversations,
@@ -434,12 +539,12 @@ export default function HomeScreen() {
             saveCachedConversations(user.id, nextItems),
             retainCachedMessageHistories(
               user.id,
-              items.map((item) => item.id)
+              nextItems.map((item) => item.id)
             ),
           ]).catch(() => undefined);
           if (!isActive) return;
           acknowledgeDeliveredMessages(
-            items.flatMap((item) =>
+            nextItems.flatMap((item) =>
               item.lastMessage ? [item.lastMessage] : []
             )
           );

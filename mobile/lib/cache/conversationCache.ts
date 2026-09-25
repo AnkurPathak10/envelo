@@ -36,6 +36,7 @@ function isConversationListItem(value: unknown): value is ConversationListItem {
     typeof candidate.id !== 'string' ||
     !isDateString(candidate.createdAt) ||
     !isDateString(candidate.updatedAt) ||
+    !(candidate.clearedAt === null || isDateString(candidate.clearedAt)) ||
     !participant ||
     typeof participant.id !== 'string' ||
     typeof participant.displayName !== 'string' ||

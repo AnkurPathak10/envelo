@@ -27,17 +27,20 @@ export async function DELETE(
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const participation = await prisma.conversationParticipant.findUnique({
-    where: { conversationId_userId: { conversationId, userId } },
-    select: { id: true },
+  const deletedAt = new Date();
+  const result = await prisma.conversationParticipant.updateMany({
+    where: { conversationId, userId },
+    data: { clearedAt: deletedAt, deletedAt },
   });
-  if (!participation) {
+  if (result.count === 0) {
     return NextResponse.json(
       { error: "Conversation not found" },
       { status: 404 },
     );
   }
 
-  await prisma.conversation.delete({ where: { id: conversationId } });
-  return NextResponse.json({ deleted: true });
+  return NextResponse.json({
+    clearedAt: deletedAt.toISOString(),
+    deletedAt: deletedAt.toISOString(),
+  });
 }

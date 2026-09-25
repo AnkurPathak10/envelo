@@ -81,6 +81,10 @@ function parseDuration(duration: string): number {
   }
 }
 
+export function refreshTokenLifetimeSeconds(): number {
+  return Math.floor(parseDuration(REFRESH_EXPIRES_IN) / 1000);
+}
+
 /**
  * Create a new refresh token in the database. Returns the raw token
  * (to send to the client) — only its HMAC hash is stored in the DB.

@@ -6,6 +6,8 @@ export const directConversationSelect = {
   updatedAt: true,
   participants: {
     select: {
+      clearedAt: true,
+      deletedAt: true,
       user: {
         select: {
           id: true,
@@ -29,6 +31,8 @@ export function conversationListSelect(currentUserId: string) {
     updatedAt: true,
     participants: {
       select: {
+        clearedAt: true,
+        deletedAt: true,
         user: {
           select: {
             id: true,
@@ -95,6 +99,21 @@ function getOtherParticipant(
   return participant.user;
 }
 
+function getCurrentParticipation(
+  conversation: DirectConversation,
+  currentUserId: string,
+) {
+  const participation = conversation.participants.find(
+    ({ user }) => user.id === currentUserId,
+  );
+
+  if (!participation) {
+    throw new Error("Conversation is missing the current participant.");
+  }
+
+  return participation;
+}
+
 export function toCreatedDirectConversation(
   conversation: DirectConversation,
   currentUserId: string,
@@ -102,6 +121,11 @@ export function toCreatedDirectConversation(
   return {
     id: conversation.id,
     createdAt: conversation.createdAt,
+    clearedAt:
+      getCurrentParticipation(
+        conversation,
+        currentUserId,
+      ).clearedAt?.toISOString() ?? null,
     participant: getOtherParticipant(conversation, currentUserId),
   };
 }
@@ -109,8 +133,16 @@ export function toCreatedDirectConversation(
 export function toConversationListItem(
   conversation: ConversationListConversation,
   currentUserId: string,
+  unreadCount = conversation._count.messages,
 ) {
-  const lastMessage = conversation.messages[0];
+  const participation = getCurrentParticipation(conversation, currentUserId);
+  const latestMessage = conversation.messages[0];
+  const lastMessage =
+    latestMessage &&
+    (!participation.clearedAt ||
+      latestMessage.createdAt > participation.clearedAt)
+      ? latestMessage
+      : undefined;
 
   return {
     id: conversation.id,
@@ -127,8 +159,21 @@ export function toConversationListItem(
           status: lastMessage.statuses[0]?.status ?? null,
         }
       : null,
-    unreadCount: conversation._count.messages,
+    clearedAt: participation.clearedAt?.toISOString() ?? null,
+    unreadCount: lastMessage ? unreadCount : 0,
   };
+}
+
+export function isConversationVisible(
+  conversation: ConversationListConversation,
+  currentUserId: string,
+): boolean {
+  const participation = getCurrentParticipation(conversation, currentUserId);
+  if (!participation.deletedAt) return true;
+  const latestMessage = conversation.messages[0];
+  return Boolean(
+    latestMessage && latestMessage.createdAt > participation.deletedAt,
+  );
 }
 
 export function hasOtherParticipant(
