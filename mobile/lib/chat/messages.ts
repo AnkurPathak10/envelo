@@ -104,6 +104,7 @@ export function toPendingTextMessage(
       : isPendingRemoteMediaMessage(message)
         ? message.mediaUrl
         : null,
+    replyTo: message.replyTo ?? null,
     createdAt: message.createdAt,
     status: 'PENDING',
   };

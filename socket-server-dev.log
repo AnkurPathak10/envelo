@@ -1,0 +1,33 @@
+npm notice run envelo-socket-server@0.1.0 dev
+npm notice run npm run generate && ts-node-dev --respawn --transpile-only src/index.ts
+npm warn Unknown env config "global-ignore-file". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+
+> envelo-socket-server@0.1.0 generate
+> prisma generate --generator socketClient --schema=../backend/prisma/schema.prisma
+
+Environment variables loaded from .env
+Prisma schema loaded from ..\backend\prisma\schema.prisma
+
+✔ Generated Prisma Client (v6.19.3) to .\src\generated\prisma in 325ms
+
+Start by importing your Prisma Client (See: https://pris.ly/d/importing-client)
+
+Tip: Need your database queries to be 1000x faster? Accelerate offers you that and more: https://pris.ly/tip-2-accelerate
+
+[INFO] 20:14:24 ts-node-dev ver. 2.0.0 (using ts-node ver. 10.9.2, typescript ver. 5.9.3)
+Error: listen EADDRINUSE: address already in use :::4000
+    at Server.setupListenHandle [as _listen2] (node:net:2324:16)
+    at listenInCluster (node:net:2433:12)
+    at Server.listen (node:net:2558:7)
+    at Object.<anonymous> (C:\Users\ap331\envelo\socket-server\src\index.ts:51:12)
+    at Module.<anonymous> (node:internal/modules/cjs/loader:1929:14)
+    at Module._compile (C:\Users\ap331\envelo\socket-server\node_modules\source-map-support\source-map-support.js:568:25)
+    at Module.m._compile (C:\Users\ap331\AppData\Local\Temp\ts-node-dev-hook-21638992531962586.js:69:33)
+    at node:internal/modules/cjs/loader:2060:10
+    at require.extensions..jsx.require.extensions..js (C:\Users\ap331\AppData\Local\Temp\ts-node-dev-hook-21638992531962586.js:114:20)
+    at require.extensions.<computed> (C:\Users\ap331\AppData\Local\Temp\ts-node-dev-hook-21638992531962586.js:71:20)
+[ERROR] 20:14:26 Error: listen EADDRINUSE: address already in use :::4000
+[INFO] 20:16:57 Restarting: C:\Users\ap331\envelo\socket-server\src\generated\prisma\index.js has been modified
+Socket server listening on port 4000
+Socket connected: eu1EOI9Rrzz-jNsuAAAA, user: cmu3ze92l0000ihb8b0r27fsf
+Socket connected: dwACAENmJgmxRICmAAAB, user: cmugl99gd001wihhg5mfsk38q

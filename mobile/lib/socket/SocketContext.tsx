@@ -12,7 +12,11 @@ import NetInfo from '@react-native-community/netinfo';
 import { AppState, type AppStateStatus } from 'react-native';
 import { io, type Socket } from 'socket.io-client';
 
-import type { MessageStatus, TextMessage } from '@/lib/api/conversations';
+import type {
+  MessageReplyPreview,
+  MessageStatus,
+  TextMessage,
+} from '@/lib/api/conversations';
 import { useAuth } from '@/lib/auth/AuthContext';
 import {
   deletePendingMedia,
@@ -35,6 +39,7 @@ export interface MessageSendPayload {
   content: string | null;
   mediaUrl?: string;
   clientMessageId?: string;
+  replyToId?: string;
 }
 
 export type SocketTextMessage = Omit<TextMessage, 'status'>;
@@ -111,7 +116,9 @@ interface SocketContextValue {
   connectionEpoch: number;
   pendingMessages: PendingMessage[];
   queueMessage: (
-    payload:
+    payload: {
+      replyTo?: MessageReplyPreview | null;
+    } & (
       | { conversationId: string; content: string; image?: never }
       | { conversationId: string; content: string | null; image: PreparedImage }
       | {
@@ -120,6 +127,7 @@ interface SocketContextValue {
           remoteMediaUrl: string;
           image?: never;
         }
+    )
   ) => Promise<PendingMessage>;
   discardConversationQueue: (conversationId: string) => Promise<void>;
   retryConnection: () => void;
@@ -565,6 +573,7 @@ export function SocketProvider({ children }: PropsWithChildren) {
                   content: pendingMessage.content,
                   mediaUrl,
                   clientMessageId: pendingMessage.clientMessageId,
+                  replyToId: pendingMessage.replyTo?.id,
                 }
               );
               if (!acknowledgement.ok) break;
@@ -594,7 +603,9 @@ export function SocketProvider({ children }: PropsWithChildren) {
 
   const queueMessage = useCallback(
     async (
-      payload:
+      payload: {
+        replyTo?: MessageReplyPreview | null;
+      } & (
         | { conversationId: string; content: string; image?: never }
         | {
             conversationId: string;
@@ -607,6 +618,7 @@ export function SocketProvider({ children }: PropsWithChildren) {
             remoteMediaUrl: string;
             image?: never;
           }
+      )
     ): Promise<PendingMessage> => {
       if (!user?.id)
         throw new Error('Cannot queue a message while signed out.');
@@ -624,6 +636,7 @@ export function SocketProvider({ children }: PropsWithChildren) {
         conversationId: payload.conversationId,
         senderId,
         createdAt: new Date(createdAtMilliseconds).toISOString(),
+        replyTo: payload.replyTo ?? null,
       };
       let pendingMessage: PendingMessage;
       if (payload.image) {

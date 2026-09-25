@@ -2,11 +2,20 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const PENDING_MESSAGES_KEY = 'envelo_pending_messages_v1';
 
+export interface PendingReplyPreview {
+  id: string;
+  senderId: string;
+  senderName: string;
+  content: string | null;
+  mediaUrl: string | null;
+}
+
 interface PendingMessageBase {
   clientMessageId: string;
   conversationId: string;
   senderId: string;
   createdAt: string;
+  replyTo: PendingReplyPreview | null;
 }
 
 export type PendingMessage = PendingMessageBase &
@@ -51,6 +60,16 @@ function isPendingMessage(value: unknown): value is PendingMessage {
     candidate.conversationId.length > 0 &&
     typeof candidate.senderId === 'string' &&
     candidate.senderId.length > 0 &&
+    (candidate.replyTo === undefined ||
+      candidate.replyTo === null ||
+      (typeof candidate.replyTo === 'object' &&
+        typeof candidate.replyTo.id === 'string' &&
+        typeof candidate.replyTo.senderId === 'string' &&
+        typeof candidate.replyTo.senderName === 'string' &&
+        (typeof candidate.replyTo.content === 'string' ||
+          candidate.replyTo.content === null) &&
+        (typeof candidate.replyTo.mediaUrl === 'string' ||
+          candidate.replyTo.mediaUrl === null))) &&
     (candidate.kind === 'media'
       ? (candidate.content === null ||
           (typeof candidate.content === 'string' &&

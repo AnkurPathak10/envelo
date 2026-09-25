@@ -15,6 +15,7 @@ export const messageSendSchema = z
       .refine(isAllowedMediaUrl, "Invalid media URL")
       .optional(),
     clientMessageId: z.string().trim().min(1).max(100).optional(),
+    replyToId: z.string().trim().min(1).max(100).optional(),
   })
   .superRefine((message, context) => {
     if (!message.content && !message.mediaUrl) {
@@ -33,6 +34,13 @@ export interface TextMessagePayload {
   senderId: string;
   content: string | null;
   mediaUrl: string | null;
+  replyTo: {
+    id: string;
+    senderId: string;
+    senderName: string;
+    content: string | null;
+    mediaUrl: string | null;
+  } | null;
   createdAt: string;
   clientMessageId: string | null;
 }
@@ -121,6 +129,15 @@ export const textMessageSelect = {
   mediaUrl: true,
   createdAt: true,
   clientMessageId: true,
+  replyTo: {
+    select: {
+      id: true,
+      senderId: true,
+      content: true,
+      mediaUrl: true,
+      sender: { select: { displayName: true } },
+    },
+  },
 } satisfies Prisma.MessageSelect;
 
 type SelectedTextMessage = Prisma.MessageGetPayload<{
@@ -142,5 +159,14 @@ export function toTextMessagePayload(
     mediaUrl: message.mediaUrl,
     createdAt: message.createdAt.toISOString(),
     clientMessageId: message.clientMessageId,
+    replyTo: message.replyTo
+      ? {
+          id: message.replyTo.id,
+          senderId: message.replyTo.senderId,
+          senderName: message.replyTo.sender.displayName,
+          content: message.replyTo.content,
+          mediaUrl: message.replyTo.mediaUrl,
+        }
+      : null,
   };
 }

@@ -175,6 +175,7 @@ export default function ConversationScreen() {
         hiddenBefore={clearedAt}
         isSearchOpen={isSearchOpen}
         key={`${conversationId}:${historyVersion}`}
+        participantName={participantName}
         searchQuery={isSearchOpen ? searchQuery : ''}
       />
     </View>

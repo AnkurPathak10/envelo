@@ -1,0 +1,17 @@
+npm notice run envelo-backend@0.1.0 dev
+npm notice run next dev
+ ⚠ Warning: Next.js inferred your workspace root, but it may not be correct.
+ We detected multiple lockfiles and selected the directory of C:\Users\ap331\envelo\package-lock.json as the root directory.
+ To silence this warning, set `outputFileTracingRoot` in your Next.js config, or consider removing one of the lockfiles if it's not needed.
+   See https://nextjs.org/docs/app/api-reference/config/next-config-js/output#caveats for more information.
+ Detected additional lockfiles: 
+   * C:\Users\ap331\envelo\backend\package-lock.json
+
+ ⚠ Port 3000 is in use by process 21992, using available port 3001 instead.
+   ▲ Next.js 15.5.25
+   - Local:        http://localhost:3001
+   - Network:      http://192.168.137.1:3001
+   - Environments: .env
+
+ ✓ Starting...
+ ✓ Ready in 3.2s

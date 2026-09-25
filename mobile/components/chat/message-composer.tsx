@@ -17,6 +17,7 @@ import { messagingColors as colors } from '@/constants/theme';
 import { AttachmentGalleryPanel } from '@/components/chat/attachment-gallery-panel';
 import { ExpressionPicker } from '@/components/chat/expression-picker';
 import type { GifResult } from '@/lib/giphy';
+import type { MessageReplyPreview } from '@/lib/api/conversations';
 import type { ImageSource } from '@/lib/media/upload';
 import type { SocketConnectionState } from '@/lib/socket/SocketContext';
 import { useAppColorScheme } from '@/lib/theme/useAppColorScheme';
@@ -39,6 +40,8 @@ interface MessageComposerProps {
   onUnavailableAction: (label: string) => void;
   sendError: string | null;
   value: string;
+  replyTo: MessageReplyPreview | null;
+  onCancelReply: () => void;
 }
 
 type AccessoryPanel = 'emoji' | 'attachments' | null;
@@ -74,6 +77,8 @@ export function MessageComposer({
   onUnavailableAction,
   sendError,
   value,
+  replyTo,
+  onCancelReply,
 }: MessageComposerProps) {
   const [accessoryPanel, setAccessoryPanel] = useState<AccessoryPanel>(null);
   const scheme = useAppColorScheme();
@@ -82,6 +87,8 @@ export function MessageComposer({
   const hasSendableContent = Boolean(value.trim() || attachmentUri);
   const isSendDisabled = isSending || isMediaBusy || !hasSendableContent;
   const connectionNotice = getConnectionNotice(connectionState);
+  const [inputHeight, setInputHeight] = useState(44);
+  const isExpanded = inputHeight > 48 || Boolean(replyTo);
 
   const togglePanel = (panel: Exclude<AccessoryPanel, null>): void => {
     setAccessoryPanel((current) => {
@@ -195,10 +202,33 @@ export function MessageComposer({
           Platform.OS === 'android' ? 'dimezisBlurView' : undefined
         }
         intensity={Platform.OS === 'android' ? 28 : 55}
-        style={styles.composerGlass}
+        style={[styles.composerGlass, isExpanded && styles.composerGlassExpanded]}
         tint={scheme === 'dark' ? 'dark' : 'light'}
       >
         <View style={styles.composerTint}>
+          {replyTo ? (
+            <View style={styles.replyPreview}>
+              <View style={styles.replyAccent} />
+              <View style={styles.replyCopy}>
+                <Text numberOfLines={1} style={styles.replyName}>
+                  Reply to {replyTo.senderName}
+                </Text>
+                <Text numberOfLines={1} style={styles.replyText}>
+                  {replyTo.content ?? (replyTo.mediaUrl ? 'Photo' : 'Message')}
+                </Text>
+              </View>
+              <Pressable
+                accessibilityLabel="Cancel reply"
+                accessibilityRole="button"
+                hitSlop={8}
+                onPress={onCancelReply}
+                style={styles.cancelReply}
+              >
+                <MaterialIcons color={c.textMuted} name="close" size={20} />
+              </Pressable>
+            </View>
+          ) : null}
+          <View style={styles.inputRow}>
           <Pressable
             accessibilityLabel="Open emoji and GIF picker"
             accessibilityRole="button"
@@ -220,7 +250,15 @@ export function MessageComposer({
             accessibilityLabel="Message"
             maxLength={2000}
             multiline
-            onChangeText={onChangeText}
+            onContentSizeChange={(event) =>
+              setInputHeight(
+                Math.max(44, Math.min(112, event.nativeEvent.contentSize.height))
+              )
+            }
+            onChangeText={(nextValue) => {
+              onChangeText(nextValue);
+              if (!nextValue) setInputHeight(44);
+            }}
             onFocus={() => setAccessoryPanel(null)}
             placeholder="Message"
             placeholderTextColor={c.textMuted}
@@ -274,6 +312,7 @@ export function MessageComposer({
               size={23}
             />
           </Pressable>
+          </View>
         </View>
       </BlurView>
     </View>
@@ -325,13 +364,13 @@ const createStyles = (c: typeof colors.light) =>
       shadowOpacity: 0.16,
       shadowRadius: 10,
     },
+    composerGlassExpanded: { borderRadius: 24 },
     composerTint: {
-      alignItems: 'flex-end',
       backgroundColor: `${c.bgSurface}B8`,
-      flexDirection: 'row',
       minHeight: 52,
       padding: 4,
     },
+    inputRow: { alignItems: 'flex-end', flexDirection: 'row' },
     connectionNotice: {
       color: c.textMuted,
       fontSize: 12,
@@ -395,6 +434,29 @@ const createStyles = (c: typeof colors.light) =>
       width: 44,
     },
     primaryActionPressed: { opacity: 0.76 },
+    cancelReply: {
+      alignItems: 'center',
+      height: 32,
+      justifyContent: 'center',
+      width: 32,
+    },
+    replyAccent: {
+      alignSelf: 'stretch',
+      backgroundColor: c.accentPrimary,
+      borderRadius: 2,
+      marginRight: 8,
+      width: 3,
+    },
+    replyCopy: { flex: 1, justifyContent: 'center' },
+    replyName: { color: c.accentPrimary, fontSize: 13, fontWeight: '600' },
+    replyPreview: {
+      alignItems: 'center',
+      flexDirection: 'row',
+      minHeight: 44,
+      paddingHorizontal: 8,
+      paddingTop: 4,
+    },
+    replyText: { color: c.textMuted, fontSize: 13, marginTop: 1 },
     removeAttachment: {
       alignItems: 'center',
       backgroundColor: c.bgBase,

@@ -9,6 +9,15 @@ export function messageHistorySelect(currentUserId: string) {
     senderId: true,
     content: true,
     mediaUrl: true,
+    replyTo: {
+      select: {
+        id: true,
+        senderId: true,
+        content: true,
+        mediaUrl: true,
+        sender: { select: { displayName: true } },
+      },
+    },
     createdAt: true,
     statuses: {
       where: { userId: { not: currentUserId } },
@@ -28,6 +37,13 @@ export interface MessageHistoryItem {
   senderId: string;
   content: string | null;
   mediaUrl: string | null;
+  replyTo: {
+    id: string;
+    senderId: string;
+    senderName: string;
+    content: string | null;
+    mediaUrl: string | null;
+  } | null;
   createdAt: string;
   status: MessageStatusType | null;
 }
@@ -41,6 +57,15 @@ export function toMessageHistoryItem(
     senderId: message.senderId,
     content: message.content,
     mediaUrl: message.mediaUrl,
+    replyTo: message.replyTo
+      ? {
+          id: message.replyTo.id,
+          senderId: message.replyTo.senderId,
+          senderName: message.replyTo.sender.displayName,
+          content: message.replyTo.content,
+          mediaUrl: message.replyTo.mediaUrl,
+        }
+      : null,
     createdAt: message.createdAt.toISOString(),
     status: message.statuses[0]?.status ?? null,
   };

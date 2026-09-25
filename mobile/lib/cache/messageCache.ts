@@ -58,6 +58,19 @@ function isMessageStatus(value: unknown): value is MessageStatus {
   return value === 'SENT' || value === 'DELIVERED' || value === 'READ';
 }
 
+function isReplyPreview(value: unknown): boolean {
+  if (value === null || value === undefined) return true;
+  if (!value || typeof value !== 'object') return false;
+  const reply = value as Partial<NonNullable<TextMessage['replyTo']>>;
+  return (
+    typeof reply.id === 'string' &&
+    typeof reply.senderId === 'string' &&
+    typeof reply.senderName === 'string' &&
+    (typeof reply.content === 'string' || reply.content === null) &&
+    (typeof reply.mediaUrl === 'string' || reply.mediaUrl === null)
+  );
+}
+
 function isTextMessage(value: unknown): value is TextMessage {
   if (!value || typeof value !== 'object') return false;
   const candidate = value as Partial<TextMessage>;
@@ -69,6 +82,7 @@ function isTextMessage(value: unknown): value is TextMessage {
     (candidate.mediaUrl === undefined ||
       candidate.mediaUrl === null ||
       typeof candidate.mediaUrl === 'string') &&
+    isReplyPreview(candidate.replyTo) &&
     isDateString(candidate.createdAt) &&
     (candidate.status === null || isMessageStatus(candidate.status)) &&
     (candidate.clientMessageId === undefined ||

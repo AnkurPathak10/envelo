@@ -74,6 +74,17 @@ export function registerMessageHandlers(
 
         if (!senderParticipant) return null;
 
+        if (parsed.data.replyToId) {
+          const replyTarget = await tx.message.findFirst({
+            where: {
+              id: parsed.data.replyToId,
+              conversationId: parsed.data.conversationId,
+            },
+            select: { id: true },
+          });
+          if (!replyTarget) return { invalidReply: true };
+        }
+
         const recipientIds = senderParticipant.conversation.participants
           .map((participant) => participant.userId)
           .filter((userId) => userId !== senderId);
@@ -85,6 +96,7 @@ export function registerMessageHandlers(
             content: parsed.data.content,
             clientMessageId: clientMessageId ?? null,
             mediaUrl: parsed.data.mediaUrl ?? null,
+            replyToId: parsed.data.replyToId ?? null,
           },
           select: textMessageSelect,
         });
@@ -108,11 +120,17 @@ export function registerMessageHandlers(
         return { message, recipientIds };
       });
 
-      if (!transactionResult) {
+      if (!transactionResult || "invalidReply" in transactionResult) {
         console.warn(
           `message:send authorization failure, socket: ${socket.id}, user: ${senderId}`,
         );
-        acknowledge?.({ ok: false, error: "Conversation not found" });
+        acknowledge?.({
+          ok: false,
+          error:
+            transactionResult && "invalidReply" in transactionResult
+              ? "Reply target is unavailable"
+              : "Conversation not found",
+        });
         return;
       }
 

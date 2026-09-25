@@ -26,12 +26,21 @@ export interface ConversationListItem {
 
 export type MessageStatus = 'SENT' | 'DELIVERED' | 'READ';
 
+export interface MessageReplyPreview {
+  id: string;
+  senderId: string;
+  senderName: string;
+  content: string | null;
+  mediaUrl: string | null;
+}
+
 export interface TextMessage {
   id: string;
   conversationId: string;
   senderId: string;
   content: string | null;
   mediaUrl: string | null;
+  replyTo: MessageReplyPreview | null;
   createdAt: string;
   status: MessageStatus | null;
   clientMessageId?: string | null;

@@ -29,6 +29,7 @@ import { ApiError, isConnectivityError } from '@/lib/api/client';
 import {
   getMessageHistory,
   searchConversationMessages,
+  type MessageReplyPreview,
   type TextMessage,
 } from '@/lib/api/conversations';
 import { useAuth } from '@/lib/auth/AuthContext';
@@ -60,6 +61,7 @@ interface ChatScreenProps {
   conversationId: string;
   hiddenBefore?: string | null;
   isSearchOpen?: boolean;
+  participantName?: string;
   searchQuery?: string;
 }
 
@@ -127,6 +129,7 @@ export function ChatScreen({
   conversationId,
   hiddenBefore = null,
   isSearchOpen = false,
+  participantName = 'Conversation',
   searchQuery = '',
 }: ChatScreenProps) {
   const { user } = useAuth();
@@ -155,6 +158,7 @@ export function ChatScreen({
   const [isSearchingMessages, setIsSearchingMessages] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
+  const [replyTo, setReplyTo] = useState<MessageReplyPreview | null>(null);
   const [isSending, setIsSending] = useState(false);
   const [isMediaBusy, setIsMediaBusy] = useState(false);
   const [composerHeight, setComposerHeight] = useState(84);
@@ -197,6 +201,7 @@ export function ChatScreen({
     setComposerHeight(84);
     setKeyboardHeight(0);
     setIsInitialPositionReady(false);
+    setReplyTo(null);
     setSelectedImage((current) =>
       current?.conversationId === conversationId ? current : null
     );
@@ -676,20 +681,29 @@ export function ChatScreen({
     if ((!content && !image) || !user?.id || isSending || isMediaBusy) return;
 
     const draftAtSend = draft;
+    const replyAtSend = replyTo;
     setIsSending(true);
     setSendError(null);
 
     try {
       requestScrollToEnd(true);
       if (image) {
-        await queueMessage({ conversationId, content: content || null, image });
+        await queueMessage({
+          conversationId,
+          content: content || null,
+          image,
+          replyTo: replyAtSend,
+        });
         setSelectedImage((current) =>
           current?.image === image ? null : current
         );
       } else {
-        await queueMessage({ conversationId, content });
+        await queueMessage({ conversationId, content, replyTo: replyAtSend });
       }
       setDraft((current) => (current === draftAtSend ? '' : current));
+      setReplyTo((current) =>
+        current?.id === replyAtSend?.id ? null : current
+      );
     } catch {
       setSendError('Unable to save this message locally. Please try again.');
     } finally {
@@ -701,6 +715,7 @@ export function ChatScreen({
     isMediaBusy,
     isSending,
     queueMessage,
+    replyTo,
     requestScrollToEnd,
     selectedImage,
     user?.id,
@@ -833,7 +848,9 @@ export function ChatScreen({
           conversationId,
           content: null,
           remoteMediaUrl: gif.url,
+          replyTo,
         });
+        setReplyTo((current) => (current?.id === replyTo?.id ? null : current));
         requestScrollToEnd(true);
       } catch {
         setSendError('Unable to queue this GIF. Please try again.');
@@ -847,9 +864,25 @@ export function ChatScreen({
       isMediaBusy,
       isSending,
       queueMessage,
+      replyTo,
       requestScrollToEnd,
       user?.id,
     ]
+  );
+
+  const beginReply = useCallback(
+    (message: RenderableTextMessage): void => {
+      if (message.status === 'PENDING') return;
+      setReplyTo({
+        id: message.id,
+        senderId: message.senderId,
+        senderName:
+          message.senderId === user?.id ? 'You' : participantName,
+        content: message.content,
+        mediaUrl: message.mediaUrl,
+      });
+    },
+    [participantName, user?.id]
   );
 
   const flushPendingScroll = useCallback(() => {
@@ -1015,6 +1048,7 @@ export function ChatScreen({
           <MessageBubble
             isOutgoing={item.senderId === user?.id}
             message={item}
+            onReply={isSearchOpen ? undefined : beginReply}
           />
         )}
         scrollEnabled={isInitialPositionReady}
@@ -1059,6 +1093,7 @@ export function ChatScreen({
               onContact={shareContact}
               onLocation={shareCurrentLocation}
               onRemoveAttachment={() => setSelectedImage(null)}
+              onCancelReply={() => setReplyTo(null)}
               onChangeText={(value) => {
                 setDraft(value);
                 if (sendError) setSendError(null);
@@ -1073,6 +1108,7 @@ export function ChatScreen({
                 )
               }
               sendError={sendError}
+              replyTo={replyTo}
               value={draft}
             />
           </SafeAreaView>

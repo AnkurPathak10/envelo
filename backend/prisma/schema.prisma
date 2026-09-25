@@ -72,6 +72,9 @@ model Message {
   sender          User         @relation("MessagesSent", fields: [senderId], references: [id], onDelete: Cascade)
   content         String?
   mediaUrl        String?
+  replyToId       String?
+  replyTo         Message?     @relation("MessageReplies", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies         Message[]    @relation("MessageReplies")
   createdAt       DateTime     @default(now())
 
   statuses MessageStatus[]

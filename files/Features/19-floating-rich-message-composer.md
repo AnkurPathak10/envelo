@@ -129,7 +129,7 @@ The compatibility drafts now remain human-readable in storage and over the socke
 ## Fourth real-device correction: route reveal and inline metadata
 
 - Disable the native stack animation specifically for the conversation route. Android's default push transition briefly composited the still-mounted inbox underneath the incoming conversation scene, producing a visible ghost of the Envelo header, search field, and conversation row. Opening a conversation is now immediate and opaque; message loading, initial bottom anchoring, keyboard behavior, and back navigation remain unchanged.
-- Render plain-message metadata as nested inline text rather than an unconditional block row. Short messages now keep their timestamp and outgoing status icon on the same line. When the combined content cannot fit, non-breaking spacing keeps the timestamp/status together and lets that unit wrap naturally after the final text line.
+- Render one real metadata row absolutely at the bubble's lower-right and reserve its footprint with explicit text padding rather than duplicated or hidden timestamp text. Short messages keep their timestamp and outgoing status icon on the same line, and wrapped text cannot collide with the anchored metadata.
 - Keep block metadata below media-only, location-card, and contact-card messages, where inline placement would overlap or compress the rich content.
 
 ## Emoji catalog and GIPHY expansion
@@ -140,3 +140,17 @@ The compatibility drafts now remain human-readable in storage and over the socke
 - Selecting a GIF queues it immediately as remote media through the existing durable optimistic/offline pipeline. The socket server accepts only HTTPS media URLs on the existing ImageKit endpoint or exact GIPHY CDN hosts, preventing arbitrary remote-media injection. Pending GIPHY media retains its remote URL and needs no local file copy.
 - `expo-image` renders animated GIF/WebP content in bubbles and the fullscreen viewer. GIPHY messages show a provider badge in addition to picker attribution. Text/photo/location/contact behavior, message status reconciliation, keyboard clearance, and newest-message anchoring are unchanged.
 - GIPHY activation requires a development/production key from the provider and must retain the provider's attribution. Before store release, upgrade the key according to GIPHY's production policy and complete real-device search, send, offline queue, animation, moderation-rating, and accessibility checks.
+
+## Reply messages and adaptive composer shape
+
+- The composer remains a compact capsule for a one-line draft. As a draft grows beyond one line, or while a reply preview is present, its border radius changes to a 24-point rounded rectangle. The input row keeps the expression, attachment, and microphone/Send action at fixed usable sizes rather than allowing a fully rounded capsule to crowd them.
+- Swiping a delivered incoming or outgoing bubble left opens a reply preview above the draft. It identifies the original sender, shows a one-line content/media glimpse, and can be cancelled without changing the draft.
+- Sending a reply stores the target message ID in `Message.replyToId`. The socket server validates that the target belongs to the same conversation before persisting it, and history, socket broadcasts/acknowledgements, cache entries, and offline pending messages carry the immutable reply preview needed to render it on every signed-in device.
+- Reply bubbles render a compact quoted card with the original sender and message/media preview before the new content. Replies are deliberately unavailable for an optimistic pending bubble because its durable target ID does not yet exist.
+- This is a real persisted relationship rather than copying an untrusted reply caption into the message body. If the quoted target is later removed by retention or deletion, PostgreSQL sets `replyToId` to null and the reply message remains intact.
+
+### Reply gesture and compact-metadata visual correction
+
+- The reply affordance is fully transparent and translated beyond the right screen edge while a bubble is idle. A left drag moves it inward and interpolates its opacity from zero to full visibility; releasing or cancelling the gesture springs both the bubble and affordance back out. No reply icon remains visible behind untouched messages.
+- Plain-text bubbles reserve their metadata footprint with deterministic right padding; no hidden or duplicate timestamp/receipt text exists in the content tree. The reserve includes a readable gap between the final word and the lower-right metadata. Short text therefore expands just enough to keep content, timestamp, and receipt on one line, while longer content still leaves a correctly sized lower-right area for the absolutely anchored metadata. The animated bubble owns its sizing directly and every full-width message row anchors outgoing bubbles to the same right edge.
+- The pan responder belongs to the full-width message row rather than the bubble alone. A left swipe that starts anywhere across that row moves only the bubble, reveals the reply affordance from outside the right edge, and triggers at a compact threshold so short messages are as easy to reply to as long messages.
