@@ -34,3 +34,12 @@ export function isGiphyUrl(value: string): boolean {
 export function isAllowedMediaUrl(value: string): boolean {
   return isImageKitUrl(value) || isGiphyUrl(value);
 }
+
+export function isVoiceMediaUrl(value: string): boolean {
+  if (!isImageKitUrl(value)) return false;
+  try {
+    return new URL(value).pathname.split("/").includes("voice-notes");
+  } catch {
+    return false;
+  }
+}

@@ -51,6 +51,7 @@ export function conversationListSelect(currentUserId: string) {
         senderId: true,
         content: true,
         mediaUrl: true,
+        audioDurationMs: true,
         createdAt: true,
         statuses: {
           where: { userId: { not: currentUserId } },
@@ -155,6 +156,7 @@ export function toConversationListItem(
           senderId: lastMessage.senderId,
           content: lastMessage.content,
           mediaUrl: lastMessage.mediaUrl,
+          audioDurationMs: lastMessage.audioDurationMs,
           createdAt: lastMessage.createdAt.toISOString(),
           status: lastMessage.statuses[0]?.status ?? null,
         }

@@ -18,6 +18,7 @@ export interface ConversationListItem {
     senderId: string;
     content: string | null;
     mediaUrl: string | null;
+    audioDurationMs: number | null;
     createdAt: string;
     status: MessageStatus | null;
   } | null;
@@ -32,6 +33,7 @@ export interface MessageReplyPreview {
   senderName: string;
   content: string | null;
   mediaUrl: string | null;
+  audioDurationMs: number | null;
 }
 
 export interface TextMessage {
@@ -40,6 +42,7 @@ export interface TextMessage {
   senderId: string;
   content: string | null;
   mediaUrl: string | null;
+  audioDurationMs: number | null;
   replyTo: MessageReplyPreview | null;
   createdAt: string;
   status: MessageStatus | null;

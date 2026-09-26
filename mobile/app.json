@@ -68,6 +68,12 @@
         {
           "contactsPermission": "Envelo needs access to contacts only when you choose a contact to share."
         }
+      ],
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Envelo needs microphone access when you hold the mic to send a voice message."
+        }
       ]
     ],
     "experiments": {

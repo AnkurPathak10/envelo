@@ -14,6 +14,7 @@ import {
 import { ContactMessageCard } from '@/components/chat/contact-message-card';
 import { LocationMessageCard } from '@/components/chat/location-message-card';
 import { MessageStatusIcon } from '@/components/chat/message-status-icon';
+import { VoiceMessagePlayer } from '@/components/chat/voice-message-player';
 import { ImageViewerModal } from '@/components/media/image-viewer-modal';
 import { messagingColors as colors, radius } from '@/constants/theme';
 import type { RenderableTextMessage } from '@/lib/chat/messages';
@@ -27,6 +28,8 @@ import { isGiphyMediaUrl } from '@/lib/giphy';
 interface MessageBubbleProps {
   message: RenderableTextMessage;
   isOutgoing: boolean;
+  avatarUrl: string | null;
+  senderName: string;
   onReply?: (message: RenderableTextMessage) => void;
 }
 
@@ -38,7 +41,14 @@ function formatMessageTime(createdAt: string): string {
 
 function replyPreviewText(message: RenderableTextMessage['replyTo']): string {
   if (!message) return '';
-  return message.content ?? (message.mediaUrl ? 'Photo' : 'Message');
+  return (
+    message.content ??
+    (message.audioDurationMs
+      ? 'Voice message'
+      : message.mediaUrl
+        ? 'Photo'
+        : 'Message')
+  );
 }
 
 function accessibilityMessagePreview(message: RenderableTextMessage): string {
@@ -46,16 +56,23 @@ function accessibilityMessagePreview(message: RenderableTextMessage): string {
     const content = message.content.replace(/\s+/g, ' ').trim();
     return content.length > 80 ? `${content.slice(0, 77)}...` : content;
   }
-  return message.mediaUrl ? 'photo' : 'message';
+  return message.audioDurationMs
+    ? 'voice message'
+    : message.mediaUrl
+      ? 'photo'
+      : 'message';
 }
 
 export function MessageBubble({
+  avatarUrl,
   message,
   isOutgoing,
   onReply,
+  senderName,
 }: MessageBubbleProps) {
+  const isVoiceMessage = Boolean(message.mediaUrl && message.audioDurationMs);
   const [isImageLoading, setIsImageLoading] = useState(
-    Boolean(message.mediaUrl)
+    Boolean(message.mediaUrl) && !isVoiceMessage
   );
   const [isViewerOpen, setIsViewerOpen] = useState(false);
   const scheme = useAppColorScheme();
@@ -109,8 +126,8 @@ export function MessageBubble({
   );
 
   useEffect(
-    () => setIsImageLoading(Boolean(message.mediaUrl)),
-    [message.mediaUrl]
+    () => setIsImageLoading(Boolean(message.mediaUrl) && !isVoiceMessage),
+    [isVoiceMessage, message.mediaUrl]
   );
 
   return (
@@ -191,7 +208,19 @@ export function MessageBubble({
               </View>
             </View>
           ) : null}
-          {message.mediaUrl ? (
+          {isVoiceMessage && message.mediaUrl && message.audioDurationMs ? (
+            <VoiceMessagePlayer
+              audioUrl={message.mediaUrl}
+              avatarUrl={avatarUrl}
+              durationMs={message.audioDurationMs}
+              isOutgoing={isOutgoing}
+              messageId={message.id}
+              senderId={message.senderId}
+              senderName={senderName}
+              status={message.status}
+              timestamp={messageTime}
+            />
+          ) : message.mediaUrl ? (
             <Pressable
               accessibilityLabel="View image"
               accessibilityRole="button"
@@ -232,34 +261,36 @@ export function MessageBubble({
               {message.content}
             </Text>
           ) : null}
-          <View
-            style={[
-              styles.metadataRow,
-              hasInlineMetadata && styles.anchoredMetadataRow,
-            ]}
-          >
-            <Text
+          {!isVoiceMessage ? (
+            <View
               style={[
-                styles.timestamp,
-                isOutgoing
-                  ? styles.outgoingTimestamp
-                  : styles.incomingTimestamp,
+                styles.metadataRow,
+                hasInlineMetadata && styles.anchoredMetadataRow,
               ]}
             >
-              {messageTime}
-            </Text>
-            {isOutgoing ? (
-              <MessageStatusIcon
-                color={c.outgoingStatus}
-                status={message.status}
-                size={15}
-                style={styles.statusIcon}
-              />
-            ) : null}
-          </View>
+              <Text
+                style={[
+                  styles.timestamp,
+                  isOutgoing
+                    ? styles.outgoingTimestamp
+                    : styles.incomingTimestamp,
+                ]}
+              >
+                {messageTime}
+              </Text>
+              {isOutgoing ? (
+                <MessageStatusIcon
+                  color={c.outgoingStatus}
+                  status={message.status}
+                  size={15}
+                  style={styles.statusIcon}
+                />
+              ) : null}
+            </View>
+          ) : null}
         </Animated.View>
       </View>
-      {message.mediaUrl ? (
+      {message.mediaUrl && !isVoiceMessage ? (
         <ImageViewerModal
           imageUrl={message.mediaUrl}
           onClose={() => setIsViewerOpen(false)}

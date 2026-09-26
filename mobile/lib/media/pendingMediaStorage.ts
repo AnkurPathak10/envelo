@@ -1,7 +1,7 @@
 import { File, Paths } from 'expo-file-system';
 import { Platform } from 'react-native';
 
-import type { PreparedImage } from '@/lib/media/upload';
+import type { PreparedAudio, PreparedImage } from '@/lib/media/upload';
 
 const WEB_DATABASE_NAME = 'envelo-pending-media-v1';
 const WEB_STORE_NAME = 'files';
@@ -11,12 +11,16 @@ function webKey(senderId: string, clientMessageId: string): string {
   return `${senderId}:${clientMessageId}`;
 }
 
-function nativeFile(senderId: string, clientMessageId: string): File {
+function nativeFile(
+  senderId: string,
+  clientMessageId: string,
+  extension: string
+): File {
   return new File(
     Paths.document,
     NATIVE_DIRECTORY_NAME,
     encodeURIComponent(senderId),
-    `${encodeURIComponent(clientMessageId)}.jpg`
+    `${encodeURIComponent(clientMessageId)}.${extension}`
   );
 }
 
@@ -76,7 +80,7 @@ export async function persistPendingMedia(
     return key;
   }
 
-  const destination = nativeFile(senderId, clientMessageId);
+  const destination = nativeFile(senderId, clientMessageId, 'jpg');
   destination.parentDirectory.create({ idempotent: true, intermediates: true });
   try {
     new File(image.uri).copy(destination);
@@ -87,14 +91,40 @@ export async function persistPendingMedia(
   return destination.uri;
 }
 
+export async function persistPendingAudio(
+  audio: PreparedAudio,
+  senderId: string,
+  clientMessageId: string
+): Promise<string> {
+  if (Platform.OS === 'web') {
+    const response = await fetch(audio.uri);
+    if (!response.ok) throw new Error('Unable to read the voice recording.');
+    const key = webKey(senderId, clientMessageId);
+    const blob = await response.blob();
+    await webStoreOperation('readwrite', (store) => store.put(blob, key));
+    return key;
+  }
+
+  const extension = audio.fileName.split('.').pop() || 'm4a';
+  const destination = nativeFile(senderId, clientMessageId, extension);
+  destination.parentDirectory.create({ idempotent: true, intermediates: true });
+  try {
+    new File(audio.uri).copy(destination);
+  } catch (error) {
+    if (destination.exists) destination.delete();
+    throw error;
+  }
+  return destination.uri;
+}
+
 export async function getPendingMediaBlob(localUri: string): Promise<Blob> {
   if (Platform.OS !== 'web') {
-    throw new Error('Browser photo storage is unavailable on this platform.');
+    throw new Error('Browser media storage is unavailable on this platform.');
   }
   const blob = await webStoreOperation<Blob | undefined>('readonly', (store) =>
     store.get(localUri)
   );
-  if (!(blob instanceof Blob)) throw new Error('The queued photo is missing.');
+  if (!(blob instanceof Blob)) throw new Error('The queued media is missing.');
   return blob;
 }
 
@@ -107,7 +137,8 @@ export async function getPendingMediaPreviewUri(
 
 export async function deletePendingMedia(
   senderId: string,
-  clientMessageId: string
+  clientMessageId: string,
+  extension = 'jpg'
 ): Promise<void> {
   if (Platform.OS === 'web') {
     await webStoreOperation('readwrite', (store) =>
@@ -115,6 +146,6 @@ export async function deletePendingMedia(
     );
     return;
   }
-  const file = nativeFile(senderId, clientMessageId);
+  const file = nativeFile(senderId, clientMessageId, extension);
   if (file.exists) file.delete();
 }

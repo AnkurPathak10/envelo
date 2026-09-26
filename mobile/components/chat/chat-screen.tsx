@@ -52,15 +52,20 @@ import {
   pickCompressedImage,
   prepareImageSource,
   type ImageSource,
+  type PreparedAudio,
   type PreparedImage,
 } from '@/lib/media/upload';
-import { isPendingMediaMessage } from '@/lib/offline/pendingMessagesStore';
+import {
+  isPendingAudioMessage,
+  isPendingMediaMessage,
+} from '@/lib/offline/pendingMessagesStore';
 import { useSocket, type SocketTextMessage } from '@/lib/socket/SocketContext';
 
 interface ChatScreenProps {
   conversationId: string;
   hiddenBefore?: string | null;
   isSearchOpen?: boolean;
+  participantAvatarUrl?: string | null;
   participantName?: string;
   searchQuery?: string;
 }
@@ -129,6 +134,7 @@ export function ChatScreen({
   conversationId,
   hiddenBefore = null,
   isSearchOpen = false,
+  participantAvatarUrl = null,
   participantName = 'Conversation',
   searchQuery = '',
 }: ChatScreenProps) {
@@ -211,7 +217,10 @@ export function ChatScreen({
     if (Platform.OS !== 'web') return;
     let active = true;
     const objectUrls: string[] = [];
-    const media = pendingMessages.filter(isPendingMediaMessage);
+    const media = pendingMessages.filter(
+      (message) =>
+        isPendingMediaMessage(message) || isPendingAudioMessage(message)
+    );
     void Promise.all(
       media.map(async (message) => {
         try {
@@ -870,16 +879,54 @@ export function ChatScreen({
     ]
   );
 
+  const sendVoiceMessage = useCallback(
+    async (audio: PreparedAudio): Promise<void> => {
+      if (!user?.id || isMediaBusy || isSending) return;
+      setIsMediaBusy(true);
+      setSendError(null);
+      const replyAtSend = replyTo;
+      try {
+        await queueMessage({
+          conversationId,
+          content: null,
+          audio,
+          replyTo: replyAtSend,
+        });
+        setReplyTo((current) =>
+          current?.id === replyAtSend?.id ? null : current
+        );
+        requestScrollToEnd(true);
+      } catch (error: unknown) {
+        setSendError(
+          error instanceof Error
+            ? error.message
+            : 'Unable to save this voice message. Please try again.'
+        );
+      } finally {
+        setIsMediaBusy(false);
+      }
+    },
+    [
+      conversationId,
+      isMediaBusy,
+      isSending,
+      queueMessage,
+      replyTo,
+      requestScrollToEnd,
+      user?.id,
+    ]
+  );
+
   const beginReply = useCallback(
     (message: RenderableTextMessage): void => {
       if (message.status === 'PENDING') return;
       setReplyTo({
         id: message.id,
         senderId: message.senderId,
-        senderName:
-          message.senderId === user?.id ? 'You' : participantName,
+        senderName: message.senderId === user?.id ? 'You' : participantName,
         content: message.content,
         mediaUrl: message.mediaUrl,
+        audioDurationMs: message.audioDurationMs,
       });
     },
     [participantName, user?.id]
@@ -1046,9 +1093,15 @@ export function ChatScreen({
         ref={listRef}
         renderItem={({ item }) => (
           <MessageBubble
+            avatarUrl={
+              item.senderId === user?.id
+                ? (user?.avatarUrl ?? null)
+                : participantAvatarUrl
+            }
             isOutgoing={item.senderId === user?.id}
             message={item}
             onReply={isSearchOpen ? undefined : beginReply}
+            senderName={item.senderId === user?.id ? 'You' : participantName}
           />
         )}
         scrollEnabled={isInitialPositionReady}
@@ -1102,6 +1155,7 @@ export function ChatScreen({
               onSend={() => void sendDraft()}
               onSelectGif={sendGif}
               onSelectGalleryImage={selectGalleryImage}
+              onVoiceRecorded={sendVoiceMessage}
               onUnavailableAction={(label) =>
                 setSendError(
                   `${label} needs the next Feature 19 message-type milestone.`

@@ -20,9 +20,15 @@ import type {
 import { useAuth } from '@/lib/auth/AuthContext';
 import {
   deletePendingMedia,
+  persistPendingAudio,
   persistPendingMedia,
 } from '@/lib/media/pendingMediaStorage';
-import { uploadImage, type PreparedImage } from '@/lib/media/upload';
+import {
+  uploadAudio,
+  uploadImage,
+  type PreparedAudio,
+  type PreparedImage,
+} from '@/lib/media/upload';
 import {
   addPendingMessage,
   clearPendingMessageReply,
@@ -31,6 +37,7 @@ import {
   removePendingMessage,
   removePendingMessagesForConversation,
   isPendingMediaMessage,
+  isPendingAudioMessage,
   isPendingRemoteMediaMessage,
   type PendingMessage,
 } from '@/lib/offline/pendingMessagesStore';
@@ -39,6 +46,7 @@ export interface MessageSendPayload {
   conversationId: string;
   content: string | null;
   mediaUrl?: string;
+  audioDurationMs?: number;
   clientMessageId?: string;
   replyToId?: string;
 }
@@ -130,6 +138,12 @@ interface SocketContextValue {
       | {
           conversationId: string;
           content: null;
+          audio: PreparedAudio;
+          image?: never;
+        }
+      | {
+          conversationId: string;
+          content: null;
           remoteMediaUrl: string;
           image?: never;
         }
@@ -171,6 +185,12 @@ const DELIVERY_BATCH_DELAY_MS = 300;
 const DELIVERY_RETRY_BASE_DELAY_MS = 500;
 const MAX_DELIVERY_RETRIES = 3;
 const MAX_DELIVERY_BATCH_SIZE = 100;
+
+function pendingMediaExtension(message: PendingMessage): string {
+  return message.kind === 'audio'
+    ? message.mediaFileName.split('.').pop() || 'm4a'
+    : 'jpg';
+}
 
 function sendMessageThroughSocket(
   socket: EnveloSocket,
@@ -491,11 +511,18 @@ export function SocketProvider({ children }: PropsWithChildren) {
         (message) => message.clientMessageId === clientMessageId
       );
       await removePendingMessage(senderId, clientMessageId);
-      if (queued && isPendingMediaMessage(queued)) {
+      if (
+        queued &&
+        (isPendingMediaMessage(queued) || isPendingAudioMessage(queued))
+      ) {
         try {
-          await deletePendingMedia(senderId, clientMessageId);
+          await deletePendingMedia(
+            senderId,
+            clientMessageId,
+            pendingMediaExtension(queued)
+          );
         } catch (error) {
-          console.warn('Unable to remove a confirmed local photo.', error);
+          console.warn('Unable to remove confirmed local media.', error);
         }
       }
       if (currentUserIdRef.current !== senderId) return;
@@ -562,9 +589,19 @@ export function SocketProvider({ children }: PropsWithChildren) {
                     },
                     true
                   )
-                : isPendingRemoteMediaMessage(pendingMessage)
-                  ? pendingMessage.mediaUrl
-                  : undefined;
+                : isPendingAudioMessage(pendingMessage)
+                  ? await uploadAudio(
+                      {
+                        uri: pendingMessage.mediaLocalUri,
+                        fileName: pendingMessage.mediaFileName,
+                        mimeType: pendingMessage.mediaMimeType,
+                        durationMs: pendingMessage.audioDurationMs,
+                      },
+                      true
+                    )
+                  : isPendingRemoteMediaMessage(pendingMessage)
+                    ? pendingMessage.mediaUrl
+                    : undefined;
               if (
                 currentUserIdRef.current !== senderId ||
                 socketRef.current !== flushSocket ||
@@ -578,6 +615,9 @@ export function SocketProvider({ children }: PropsWithChildren) {
                   conversationId: pendingMessage.conversationId,
                   content: pendingMessage.content,
                   mediaUrl,
+                  audioDurationMs: isPendingAudioMessage(pendingMessage)
+                    ? pendingMessage.audioDurationMs
+                    : undefined,
                   clientMessageId: pendingMessage.clientMessageId,
                   replyToId: pendingMessage.replyTo?.id,
                 }
@@ -614,6 +654,9 @@ export function SocketProvider({ children }: PropsWithChildren) {
                     conversationId: pendingMessage.conversationId,
                     content: pendingMessage.content,
                     mediaUrl,
+                    audioDurationMs: isPendingAudioMessage(pendingMessage)
+                      ? pendingMessage.audioDurationMs
+                      : undefined,
                     clientMessageId: pendingMessage.clientMessageId,
                   }
                 );
@@ -657,6 +700,12 @@ export function SocketProvider({ children }: PropsWithChildren) {
         | {
             conversationId: string;
             content: null;
+            audio: PreparedAudio;
+            image?: never;
+          }
+        | {
+            conversationId: string;
+            content: null;
             remoteMediaUrl: string;
             image?: never;
           }
@@ -681,7 +730,30 @@ export function SocketProvider({ children }: PropsWithChildren) {
         replyTo: payload.replyTo ?? null,
       };
       let pendingMessage: PendingMessage;
-      if (payload.image) {
+      if ('audio' in payload) {
+        const mediaLocalUri = await persistPendingAudio(
+          payload.audio,
+          senderId,
+          clientMessageId
+        );
+        if (currentUserIdRef.current !== senderId) {
+          await deletePendingMedia(
+            senderId,
+            clientMessageId,
+            payload.audio.fileName.split('.').pop() || 'm4a'
+          );
+          throw new Error('Account changed before the recording was saved.');
+        }
+        pendingMessage = {
+          ...common,
+          kind: 'audio',
+          content: null,
+          mediaLocalUri,
+          mediaFileName: payload.audio.fileName,
+          mediaMimeType: payload.audio.mimeType,
+          audioDurationMs: payload.audio.durationMs,
+        };
+      } else if (payload.image) {
         const mediaLocalUri = await persistPendingMedia(
           payload.image,
           senderId,
@@ -715,10 +787,15 @@ export function SocketProvider({ children }: PropsWithChildren) {
       try {
         await addPendingMessage(pendingMessage);
       } catch (error: unknown) {
-        if (isPendingMediaMessage(pendingMessage)) {
-          await deletePendingMedia(senderId, clientMessageId).catch(
-            () => undefined
-          );
+        if (
+          isPendingMediaMessage(pendingMessage) ||
+          isPendingAudioMessage(pendingMessage)
+        ) {
+          await deletePendingMedia(
+            senderId,
+            clientMessageId,
+            pendingMediaExtension(pendingMessage)
+          ).catch(() => undefined);
         }
         setPendingMessages((current) =>
           current.filter(
@@ -757,11 +834,16 @@ export function SocketProvider({ children }: PropsWithChildren) {
       );
       await Promise.all(
         removed
-          .filter(isPendingMediaMessage)
+          .filter(
+            (message) =>
+              isPendingMediaMessage(message) || isPendingAudioMessage(message)
+          )
           .map((message) =>
-            deletePendingMedia(senderId, message.clientMessageId).catch(
-              () => undefined
-            )
+            deletePendingMedia(
+              senderId,
+              message.clientMessageId,
+              pendingMediaExtension(message)
+            ).catch(() => undefined)
           )
       );
       if (currentUserIdRef.current !== senderId) return;

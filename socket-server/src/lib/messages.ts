@@ -2,7 +2,7 @@ import type { Prisma } from "../generated/prisma";
 import type { Server, Socket } from "socket.io";
 import { z } from "zod";
 
-import { isAllowedMediaUrl } from "./media";
+import { isAllowedMediaUrl, isVoiceMediaUrl } from "./media";
 
 export const messageSendSchema = z
   .object({
@@ -14,6 +14,7 @@ export const messageSendSchema = z
       .url()
       .refine(isAllowedMediaUrl, "Invalid media URL")
       .optional(),
+    audioDurationMs: z.number().int().min(300).max(300_000).optional(),
     clientMessageId: z.string().trim().min(1).max(100).optional(),
     replyToId: z.string().trim().min(1).max(100).optional(),
   })
@@ -25,6 +26,35 @@ export const messageSendSchema = z
         path: ["content"],
       });
     }
+    if (message.audioDurationMs !== undefined && !message.mediaUrl) {
+      context.addIssue({
+        code: "custom",
+        message: "Voice messages require media",
+        path: ["audioDurationMs"],
+      });
+    }
+    if (
+      message.audioDurationMs !== undefined &&
+      message.mediaUrl &&
+      !isVoiceMediaUrl(message.mediaUrl)
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Voice message URL is invalid",
+        path: ["mediaUrl"],
+      });
+    }
+    if (
+      message.audioDurationMs === undefined &&
+      message.mediaUrl &&
+      isVoiceMediaUrl(message.mediaUrl)
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Voice message duration is required",
+        path: ["audioDurationMs"],
+      });
+    }
   })
   .transform((message) => ({ ...message, content: message.content ?? null }));
 
@@ -34,12 +64,14 @@ export interface TextMessagePayload {
   senderId: string;
   content: string | null;
   mediaUrl: string | null;
+  audioDurationMs: number | null;
   replyTo: {
     id: string;
     senderId: string;
     senderName: string;
     content: string | null;
     mediaUrl: string | null;
+    audioDurationMs: number | null;
   } | null;
   createdAt: string;
   clientMessageId: string | null;
@@ -132,6 +164,7 @@ export const textMessageSelect = {
   senderId: true,
   content: true,
   mediaUrl: true,
+  audioDurationMs: true,
   createdAt: true,
   clientMessageId: true,
   replyTo: {
@@ -140,6 +173,7 @@ export const textMessageSelect = {
       senderId: true,
       content: true,
       mediaUrl: true,
+      audioDurationMs: true,
       createdAt: true,
       sender: { select: { displayName: true } },
     },
@@ -164,6 +198,7 @@ export function toTextMessagePayload(
     senderId: message.senderId,
     content: message.content,
     mediaUrl: message.mediaUrl,
+    audioDurationMs: message.audioDurationMs,
     createdAt: message.createdAt.toISOString(),
     clientMessageId: message.clientMessageId,
     replyTo:
@@ -175,6 +210,7 @@ export function toTextMessagePayload(
             senderName: message.replyTo.sender.displayName,
             content: message.replyTo.content,
             mediaUrl: message.replyTo.mediaUrl,
+            audioDurationMs: message.replyTo.audioDurationMs,
           }
         : null,
   };

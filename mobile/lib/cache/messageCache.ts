@@ -67,7 +67,11 @@ function isReplyPreview(value: unknown): boolean {
     typeof reply.senderId === 'string' &&
     typeof reply.senderName === 'string' &&
     (typeof reply.content === 'string' || reply.content === null) &&
-    (typeof reply.mediaUrl === 'string' || reply.mediaUrl === null)
+    (typeof reply.mediaUrl === 'string' || reply.mediaUrl === null) &&
+    (reply.audioDurationMs === undefined ||
+      reply.audioDurationMs === null ||
+      (typeof reply.audioDurationMs === 'number' &&
+        Number.isInteger(reply.audioDurationMs)))
   );
 }
 
@@ -82,6 +86,10 @@ function isTextMessage(value: unknown): value is TextMessage {
     (candidate.mediaUrl === undefined ||
       candidate.mediaUrl === null ||
       typeof candidate.mediaUrl === 'string') &&
+    (candidate.audioDurationMs === undefined ||
+      candidate.audioDurationMs === null ||
+      (typeof candidate.audioDurationMs === 'number' &&
+        Number.isInteger(candidate.audioDurationMs))) &&
     isReplyPreview(candidate.replyTo) &&
     isDateString(candidate.createdAt) &&
     (candidate.status === null || isMessageStatus(candidate.status)) &&

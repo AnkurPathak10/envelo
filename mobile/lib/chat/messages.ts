@@ -2,6 +2,7 @@ import type { MessageStatus, TextMessage } from '@/lib/api/conversations';
 import type { PendingMessage } from '@/lib/offline/pendingMessagesStore';
 import {
   isPendingMediaMessage,
+  isPendingAudioMessage,
   isPendingRemoteMediaMessage,
 } from '@/lib/offline/pendingMessagesStore';
 
@@ -101,9 +102,14 @@ export function toPendingTextMessage(
     content: message.content,
     mediaUrl: isPendingMediaMessage(message)
       ? (previewUri ?? message.mediaLocalUri)
-      : isPendingRemoteMediaMessage(message)
-        ? message.mediaUrl
-        : null,
+      : isPendingAudioMessage(message)
+        ? (previewUri ?? message.mediaLocalUri)
+        : isPendingRemoteMediaMessage(message)
+          ? message.mediaUrl
+          : null,
+    audioDurationMs: isPendingAudioMessage(message)
+      ? message.audioDurationMs
+      : null,
     replyTo: message.replyTo ?? null,
     createdAt: message.createdAt,
     status: 'PENDING',

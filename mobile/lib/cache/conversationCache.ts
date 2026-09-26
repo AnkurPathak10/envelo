@@ -62,6 +62,10 @@ function isConversationListItem(value: unknown): value is ConversationListItem {
     (lastMessage.mediaUrl === undefined ||
       lastMessage.mediaUrl === null ||
       typeof lastMessage.mediaUrl === 'string') &&
+    (lastMessage.audioDurationMs === undefined ||
+      lastMessage.audioDurationMs === null ||
+      (typeof lastMessage.audioDurationMs === 'number' &&
+        Number.isInteger(lastMessage.audioDurationMs))) &&
     isDateString(lastMessage.createdAt) &&
     (lastMessage.status === null || isMessageStatus(lastMessage.status))
   );

@@ -9,12 +9,14 @@ export function messageHistorySelect(currentUserId: string) {
     senderId: true,
     content: true,
     mediaUrl: true,
+    audioDurationMs: true,
     replyTo: {
       select: {
         id: true,
         senderId: true,
         content: true,
         mediaUrl: true,
+        audioDurationMs: true,
         createdAt: true,
         sender: { select: { displayName: true } },
       },
@@ -38,12 +40,14 @@ export interface MessageHistoryItem {
   senderId: string;
   content: string | null;
   mediaUrl: string | null;
+  audioDurationMs: number | null;
   replyTo: {
     id: string;
     senderId: string;
     senderName: string;
     content: string | null;
     mediaUrl: string | null;
+    audioDurationMs: number | null;
   } | null;
   createdAt: string;
   status: MessageStatusType | null;
@@ -59,6 +63,7 @@ export function toMessageHistoryItem(
     senderId: message.senderId,
     content: message.content,
     mediaUrl: message.mediaUrl,
+    audioDurationMs: message.audioDurationMs,
     replyTo:
       message.replyTo &&
       (!viewerClearedAt || message.replyTo.createdAt > viewerClearedAt)
@@ -68,6 +73,7 @@ export function toMessageHistoryItem(
             senderName: message.replyTo.sender.displayName,
             content: message.replyTo.content,
             mediaUrl: message.replyTo.mediaUrl,
+            audioDurationMs: message.replyTo.audioDurationMs,
           }
         : null,
     createdAt: message.createdAt.toISOString(),

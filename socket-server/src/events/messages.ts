@@ -117,6 +117,7 @@ export function registerMessageHandlers(
             content: parsed.data.content,
             clientMessageId: clientMessageId ?? null,
             mediaUrl: parsed.data.mediaUrl ?? null,
+            audioDurationMs: parsed.data.audioDurationMs ?? null,
             replyToId: parsed.data.replyToId ?? null,
           },
           select: textMessageSelect,

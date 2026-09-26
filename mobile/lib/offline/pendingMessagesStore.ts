@@ -8,6 +8,7 @@ export interface PendingReplyPreview {
   senderName: string;
   content: string | null;
   mediaUrl: string | null;
+  audioDurationMs: number | null;
 }
 
 interface PendingMessageBase {
@@ -33,6 +34,14 @@ export type PendingMessage = PendingMessageBase &
         content: null;
         mediaUrl: string;
       }
+    | {
+        kind: 'audio';
+        content: null;
+        mediaLocalUri: string;
+        mediaFileName: string;
+        mediaMimeType: string;
+        audioDurationMs: number;
+      }
   );
 
 export function isPendingMediaMessage(
@@ -45,6 +54,12 @@ export function isPendingRemoteMediaMessage(
   message: PendingMessage
 ): message is Extract<PendingMessage, { kind: 'remote-media' }> {
   return message.kind === 'remote-media';
+}
+
+export function isPendingAudioMessage(
+  message: PendingMessage
+): message is Extract<PendingMessage, { kind: 'audio' }> {
+  return message.kind === 'audio';
 }
 
 let storageMutation = Promise.resolve();
@@ -69,7 +84,13 @@ function isPendingMessage(value: unknown): value is PendingMessage {
         (typeof candidate.replyTo.content === 'string' ||
           candidate.replyTo.content === null) &&
         (typeof candidate.replyTo.mediaUrl === 'string' ||
-          candidate.replyTo.mediaUrl === null))) &&
+          candidate.replyTo.mediaUrl === null) &&
+        (candidate.replyTo.audioDurationMs === undefined ||
+          candidate.replyTo.audioDurationMs === null ||
+          (typeof candidate.replyTo.audioDurationMs === 'number' &&
+            Number.isInteger(candidate.replyTo.audioDurationMs) &&
+            candidate.replyTo.audioDurationMs >= 300 &&
+            candidate.replyTo.audioDurationMs <= 300_000)))) &&
     (candidate.kind === 'media'
       ? (candidate.content === null ||
           (typeof candidate.content === 'string' &&
@@ -79,15 +100,27 @@ function isPendingMessage(value: unknown): value is PendingMessage {
         typeof candidate.mediaFileName === 'string' &&
         candidate.mediaFileName.length > 0 &&
         candidate.mediaMimeType === 'image/jpeg'
-      : candidate.kind === 'remote-media'
+      : candidate.kind === 'audio'
         ? candidate.content === null &&
-          typeof candidate.mediaUrl === 'string' &&
-          candidate.mediaUrl.startsWith('https://') &&
-          candidate.mediaUrl.length <= 2048
-        : (candidate.kind === undefined || candidate.kind === 'text') &&
-          typeof candidate.content === 'string' &&
-          candidate.content.length > 0 &&
-          candidate.content.length <= 2000) &&
+          typeof candidate.mediaLocalUri === 'string' &&
+          candidate.mediaLocalUri.length > 0 &&
+          typeof candidate.mediaFileName === 'string' &&
+          candidate.mediaFileName.length > 0 &&
+          typeof candidate.mediaMimeType === 'string' &&
+          candidate.mediaMimeType.startsWith('audio/') &&
+          typeof candidate.audioDurationMs === 'number' &&
+          Number.isInteger(candidate.audioDurationMs) &&
+          candidate.audioDurationMs >= 300 &&
+          candidate.audioDurationMs <= 300_000
+        : candidate.kind === 'remote-media'
+          ? candidate.content === null &&
+            typeof candidate.mediaUrl === 'string' &&
+            candidate.mediaUrl.startsWith('https://') &&
+            candidate.mediaUrl.length <= 2048
+          : (candidate.kind === undefined || candidate.kind === 'text') &&
+            typeof candidate.content === 'string' &&
+            candidate.content.length > 0 &&
+            candidate.content.length <= 2000) &&
     typeof candidate.createdAt === 'string' &&
     Number.isFinite(Date.parse(candidate.createdAt))
   );

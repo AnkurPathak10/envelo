@@ -385,6 +385,7 @@ export default function HomeScreen() {
               senderId: message.senderId,
               content: message.content,
               mediaUrl: message.mediaUrl,
+              audioDurationMs: message.audioDurationMs,
               createdAt: message.createdAt,
               status: isIncoming ? null : 'SENT',
             },

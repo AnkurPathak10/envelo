@@ -4,7 +4,7 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
-- Features 03, 04, 06, 09, 11, 13, 14, 15, 16, 17, and 20 implemented - pending remaining manual real-device verification; Features 05, 07, 08, 10, and 12 complete
+- Features 03, 04, 06, 09, 11, 13, 14, 15, 16, 17, 20, and 21 implemented - pending remaining manual real-device verification; Features 05, 07, 08, 10, and 12 complete
 
 ## Current Goal
 
@@ -13,8 +13,21 @@ Update this file after every meaningful implementation change.
 - Verify Feature 18's light-theme chat and inbox colour placement on a real device; see the UI Upgrades section below.
 - Complete Feature 17's ten-case two-device verification checklist, including ImageKit dashboard compression/file-type checks and the offline text-message regression test
 - Complete one real signup on Expo Go and web with the configured Brevo sender, confirming delivery, OTP verification, resend timing, native SecureStore, and the browser refresh cookie.
+- Complete Feature 21's Android/iOS two-account acceptance: microphone permission, hold/release send, slide-left delete, playback speeds, offline restart/reconnect, and light/dark mic contrast.
 
 ## UI Upgrades
+
+- Feature 21: Hold-to-Record Voice Messages — implemented; real-device/two-account acceptance pending.
+  - Installed Expo SDK 54's official `expo-audio`, registered Envelo's microphone permission copy, and added hold-to-record with a live timer, five-minute cap, native permission handling, and audio-session cleanup on every stop/error/unmount path.
+  - Replaced the inactive empty-composer microphone with the working gesture: release queues/sends; sliding left arms a visible delete state and release discards without upload. Accidental recordings below 300 ms are rejected. The light mic glyph is white and the dark mic glyph remains black.
+  - Added `Message.audioDurationMs`, applied its Prisma migration to the configured Neon database, and carried the field through socket validation/persistence/live delivery, REST history/search/reply previews, conversation previews, caches, and optimistic rendering. Login and signup behavior are unchanged.
+  - Extended the durable per-user offline media queue for audio. Native recordings are copied to app document storage and web recordings to IndexedDB, uploaded with signed ImageKit credentials under `/voice-notes`, retried in conversation order, and removed only after acknowledgement or an account-scoped Clear/Delete.
+  - Added voice bubbles with idle sender avatar/initials, Play/Pause, waveform-style progress, duration, ordinary timestamp/receipt, and a playing-only speed control cycling 0.5×, 1×, 1.5×, and 2× with pitch correction. Voice media never opens the image viewer; replies and inbox rows label it **Voice message**.
+  - Real-device UX repair: Mic now requires a true 320 ms hold, so a tap never starts/stops Android's native recorder and only shows neutral **Press and hold to record audio** guidance. Stop waits out Android's unsafe initialization window, skips duplicate preparation when the recorder is already ready, and hides raw native lifecycle errors from the composer.
+  - Real-device accuracy repair: recording duration now comes from recorder status plus elapsed wall time at release—never the unreliable `currentTime` value that made every clip appear as five minutes. The recording strip enables SDK metering and renders a live speech-responsive waveform.
+  - Playback/layout repair: players explicitly disable looping, pause and reset once at completion, and place duration plus timestamp/receipt together below the waveform so voice bubbles no longer spend a separate row on message metadata.
+  - Follow-up verification passes: changed mobile files format cleanly, mobile TypeScript and Expo lint pass, the Android production bundle exports successfully, and the repository whitespace check passes. Physical-device audio quality, metering response, interruption, and two-account delivery remain in the manual checklist.
+  - Verification passed: migration apply/status, voice/image socket schema checks, mobile/backend/socket-server TypeScript, Expo lint, SDK dependency/config validation, backend production build, direct socket compile/generated-client copy, web export, Android production bundle export, formatting, and repository whitespace checks. The socket `npm run build` wrapper could not replace its Windows Prisma DLL while an existing Node process held it open; the generated schema/types and direct compile are current, and restarting that development process before testing releases the lock. The twelve real-device scenarios remain tracked below.
 
 - Feature 20: Signup Email Verification via OTP (Brevo) — implemented; live Brevo/real-device acceptance pending.
   - Changed `POST /api/auth/signup` from immediate account creation to a `202` pending challenge. A user row, access token, and refresh token now exist only after `POST /api/auth/signup/verify-otp` accepts the six-digit code; normal email/password login is unchanged and never requests OTP.
@@ -380,12 +393,13 @@ Update this file after every meaningful implementation change.
 - Feature 15 manual two-device verification: validate cached chat and inbox rendering in airplane mode (including force-close/reopen), switching among multiple previously opened chats, the expected error for a never-opened chat, reconnect merge/de-duplication, genuine HTTP-error handling, and light/dark offline-notice presentation. The implementation and static checks are complete; these physical-device/browser scenarios remain pending.
 - Feature 16 manual real-device/browser verification: run all ten specification checks for persisted Light/Dark/System behavior, cross-screen theme consistency, two-account live row movement and unread clearing, empty previews, deterministic avatars, timestamp cases, and inbox appearance. The implementation and static checks are complete; this physical-device/browser validation remains pending.
 - Feature 17 manual two-device verification: confirm removable pre-send image preview and optional caption; test offline image queueing, local thumbnail and `PENDING` clock, force-close/reopen persistence, reconnect upload/send, local-file cleanup, same-conversation text/media order after an upload failure, and independent conversations. Re-run avatar propagation, full-screen viewer, media-only inbox previews, foreign-URL rejection, actual ImageKit uploads/compression, and light/dark/error states. Confirm ImageKit's image-only restriction and optional size limit. Physical-device and external-service verification remain pending.
+- Feature 21 manual Android/iOS and two-account verification: run all twelve checks in `21-voice-messages.md`, especially the first permission prompt, hold/release timing, slide-left delete threshold, five-minute stop, recording interruption, avatar/speed playback UI, offline force-close/reconnect, and delivery to a second account/device.
 - Optional Neon data hygiene: delete the legacy conversations with fewer than two participants through the Neon SQL console once a browser session or working direct maintenance connection is available. The app no longer depends on this cleanup because the inbox route excludes them.
 
 ## Next Up
 
 - Finish Feature 18's real-device visual acceptance for the light chat and inbox palette.
-- Decide authentication direction in a separately numbered future feature: keep password login or design Email OTP, accounting for provider cost, deliverability, abuse controls, and the desired mobile sign-in experience.
+- After Feature 21 real-device acceptance, define Feature 22 for audio/video calls, including signaling, foreground/background lifecycle, ringing, permissions, NAT traversal/TURN cost, and call-state UI before choosing an implementation provider.
 
 ## Open Questions
 

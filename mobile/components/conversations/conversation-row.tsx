@@ -58,7 +58,11 @@ export function ConversationRow({
           <Text numberOfLines={1} style={styles.preview}>
             {lastMessage
               ? (lastMessage.content ??
-                (lastMessage.mediaUrl ? '📷 Photo' : 'Message'))
+                (lastMessage.audioDurationMs
+                  ? '🎤 Voice message'
+                  : lastMessage.mediaUrl
+                    ? '📷 Photo'
+                    : 'Message'))
               : 'No messages yet'}
           </Text>
         </View>

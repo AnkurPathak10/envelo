@@ -7,7 +7,7 @@ import { getPendingMediaBlob } from '@/lib/media/pendingMediaStorage';
 
 const MAX_IMAGE_DIMENSION = 1600;
 const IMAGE_QUALITY = 0.7;
-const IMAGE_UPLOAD_TIMEOUT_MS = 60_000;
+const MEDIA_UPLOAD_TIMEOUT_MS = 60_000;
 const IMAGEKIT_UPLOAD_URL = 'https://upload.imagekit.io/api/v1/files/upload';
 
 interface UploadCredentials {
@@ -26,6 +26,13 @@ export interface PreparedImage {
   uri: string;
   fileName: string;
   mimeType: 'image/jpeg';
+}
+
+export interface PreparedAudio {
+  uri: string;
+  fileName: string;
+  mimeType: string;
+  durationMs: number;
 }
 
 export interface ImageSource {
@@ -103,7 +110,7 @@ async function uploadErrorMessage(response: Response): Promise<string> {
   } catch {
     // Fall through to the stable user-facing error below.
   }
-  return 'Image upload was rejected. Please try again.';
+  return 'Media upload was rejected. Please try again.';
 }
 
 function belongsToEndpoint(url: string, endpointValue: string): boolean {
@@ -124,9 +131,10 @@ function belongsToEndpoint(url: string, endpointValue: string): boolean {
   }
 }
 
-export async function uploadImage(
-  image: PreparedImage,
-  isQueuedMedia = false
+async function uploadMedia(
+  media: PreparedImage | PreparedAudio,
+  isQueuedMedia: boolean,
+  folder?: string
 ): Promise<string> {
   const credentials = await apiRequest<UploadCredentials>(
     '/api/media/upload-auth'
@@ -135,29 +143,30 @@ export async function uploadImage(
 
   if (Platform.OS === 'web') {
     const blob = isQueuedMedia
-      ? await getPendingMediaBlob(image.uri)
+      ? await getPendingMediaBlob(media.uri)
       : await (async () => {
-          const fileResponse = await fetch(image.uri);
+          const fileResponse = await fetch(media.uri);
           if (!fileResponse.ok)
-            throw new Error('Unable to read the selected image.');
+            throw new Error('Unable to read the selected media.');
           return fileResponse.blob();
         })();
-    formData.append('file', blob, image.fileName);
+    formData.append('file', blob, media.fileName);
   } else {
     formData.append('file', {
-      uri: image.uri,
-      name: image.fileName,
-      type: image.mimeType,
+      uri: media.uri,
+      name: media.fileName,
+      type: media.mimeType,
     } as unknown as Blob);
   }
-  formData.append('fileName', image.fileName);
+  formData.append('fileName', media.fileName);
+  if (folder) formData.append('folder', folder);
   formData.append('publicKey', credentials.publicKey);
   formData.append('token', credentials.token);
   formData.append('expire', String(credentials.expire));
   formData.append('signature', credentials.signature);
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), IMAGE_UPLOAD_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), MEDIA_UPLOAD_TIMEOUT_MS);
 
   let response: Response;
   try {
@@ -169,12 +178,12 @@ export async function uploadImage(
   } catch {
     if (controller.signal.aborted) {
       throw new ApiError(
-        'The image upload timed out. Check your connection and try again.',
+        'The media upload timed out. Check your connection and try again.',
         0
       );
     }
     throw new ApiError(
-      'Unable to upload the image. Check your connection and try again.',
+      'Unable to upload the media. Check your connection and try again.',
       0
     );
   } finally {
@@ -187,7 +196,21 @@ export async function uploadImage(
     typeof uploaded.url !== 'string' ||
     !belongsToEndpoint(uploaded.url, credentials.urlEndpoint)
   ) {
-    throw new Error('The media service returned an invalid image URL.');
+    throw new Error('The media service returned an invalid URL.');
   }
   return uploaded.url;
+}
+
+export function uploadImage(
+  image: PreparedImage,
+  isQueuedMedia = false
+): Promise<string> {
+  return uploadMedia(image, isQueuedMedia, '/chat-images');
+}
+
+export function uploadAudio(
+  audio: PreparedAudio,
+  isQueuedMedia = false
+): Promise<string> {
+  return uploadMedia(audio, isQueuedMedia, '/voice-notes');
 }

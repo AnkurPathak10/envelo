@@ -175,6 +175,7 @@ export default function ConversationScreen() {
         hiddenBefore={clearedAt}
         isSearchOpen={isSearchOpen}
         key={`${conversationId}:${historyVersion}`}
+        participantAvatarUrl={participantAvatarUrl || null}
         participantName={participantName}
         searchQuery={isSearchOpen ? searchQuery : ''}
       />

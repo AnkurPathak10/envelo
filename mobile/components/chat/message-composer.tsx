@@ -1,10 +1,21 @@
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { BlurView } from 'expo-blur';
-import { LinearGradient } from 'expo-linear-gradient';
-import { useState } from 'react';
 import {
+  getRecordingPermissionsAsync,
+  RecordingPresets,
+  requestRecordingPermissionsAsync,
+  setAudioModeAsync,
+  useAudioRecorder,
+  useAudioRecorderState,
+} from 'expo-audio';
+import { File } from 'expo-file-system';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Animated,
   Image,
   Keyboard,
+  PanResponder,
   Platform,
   Pressable,
   StyleSheet,
@@ -18,7 +29,7 @@ import { AttachmentGalleryPanel } from '@/components/chat/attachment-gallery-pan
 import { ExpressionPicker } from '@/components/chat/expression-picker';
 import type { GifResult } from '@/lib/giphy';
 import type { MessageReplyPreview } from '@/lib/api/conversations';
-import type { ImageSource } from '@/lib/media/upload';
+import type { ImageSource, PreparedAudio } from '@/lib/media/upload';
 import type { SocketConnectionState } from '@/lib/socket/SocketContext';
 import { useAppColorScheme } from '@/lib/theme/useAppColorScheme';
 
@@ -37,6 +48,7 @@ interface MessageComposerProps {
   onSend: () => void;
   onSelectGif: (gif: GifResult) => Promise<void>;
   onSelectGalleryImage: (source: ImageSource) => Promise<void>;
+  onVoiceRecorded: (audio: PreparedAudio) => Promise<void>;
   onUnavailableAction: (label: string) => void;
   sendError: string | null;
   value: string;
@@ -45,6 +57,46 @@ interface MessageComposerProps {
 }
 
 type AccessoryPanel = 'emoji' | 'attachments' | null;
+
+const MIN_VOICE_DURATION_MS = 300;
+const HOLD_TO_RECORD_MS = 320;
+const MIN_NATIVE_RECORDING_MS = 800;
+const MAX_VOICE_DURATION_SECONDS = 300;
+const CANCEL_SWIPE_DISTANCE = -88;
+const RECORDING_WAVEFORM_BAR_COUNT = 14;
+const VOICE_RECORDING_OPTIONS = {
+  ...RecordingPresets.HIGH_QUALITY,
+  isMeteringEnabled: true,
+};
+
+function wait(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function normalizeMetering(metering: number | undefined): number {
+  if (typeof metering !== 'number' || !Number.isFinite(metering)) return 0.12;
+  return Math.max(0.12, Math.min(1, (metering + 60) / 60));
+}
+
+function formatRecordingDuration(durationMs: number): string {
+  const totalSeconds = Math.floor(durationMs / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+}
+
+function removeTemporaryRecording(uri: string): void {
+  try {
+    if (Platform.OS === 'web') {
+      URL.revokeObjectURL(uri);
+      return;
+    }
+    const file = new File(uri);
+    if (file.exists) file.delete();
+  } catch {
+    // The OS may already have reclaimed an interrupted temporary recording.
+  }
+}
 
 function getConnectionNotice(
   connectionState: SocketConnectionState
@@ -74,6 +126,7 @@ export function MessageComposer({
   onSend,
   onSelectGif,
   onSelectGalleryImage,
+  onVoiceRecorded,
   onUnavailableAction,
   sendError,
   value,
@@ -88,19 +141,289 @@ export function MessageComposer({
   const isSendDisabled = isSending || isMediaBusy || !hasSendableContent;
   const connectionNotice = getConnectionNotice(connectionState);
   const [inputHeight, setInputHeight] = useState(44);
+  const [isRecording, setIsRecording] = useState(false);
+  const [isCancelArmed, setIsCancelArmed] = useState(false);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+  const [voiceNotice, setVoiceNotice] = useState<string | null>(null);
+  const [recordingLevels, setRecordingLevels] = useState<number[]>(() =>
+    Array(RECORDING_WAVEFORM_BAR_COUNT).fill(0.12)
+  );
+  const recorder = useAudioRecorder(VOICE_RECORDING_OPTIONS);
+  const recorderState = useAudioRecorderState(recorder, 100);
+  const recordingTranslateX = useRef(new Animated.Value(0)).current;
+  const gestureActiveRef = useRef(false);
+  const isStartingRecordingRef = useRef(false);
+  const isRecordingRef = useRef(false);
+  const isStoppingRecordingRef = useRef(false);
+  const recordingStartedAtRef = useRef<number | null>(null);
+  const pendingFinishRef = useRef<boolean | null>(null);
+  const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const maximumDurationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  );
   const isExpanded = inputHeight > 48 || Boolean(replyTo);
 
+  const clearHoldTimer = useCallback((): void => {
+    if (!holdTimerRef.current) return;
+    clearTimeout(holdTimerRef.current);
+    holdTimerRef.current = null;
+  }, []);
+
+  const resetRecordingUi = useCallback((): void => {
+    isRecordingRef.current = false;
+    recordingStartedAtRef.current = null;
+    setIsRecording(false);
+    setIsCancelArmed(false);
+    setRecordingLevels(Array(RECORDING_WAVEFORM_BAR_COUNT).fill(0.12));
+    Animated.spring(recordingTranslateX, {
+      toValue: 0,
+      useNativeDriver: true,
+    }).start();
+    if (maximumDurationTimerRef.current) {
+      clearTimeout(maximumDurationTimerRef.current);
+      maximumDurationTimerRef.current = null;
+    }
+  }, [recordingTranslateX]);
+
+  const finishVoiceRecording = useCallback(
+    async (cancel: boolean): Promise<void> => {
+      gestureActiveRef.current = false;
+      if (isStartingRecordingRef.current && !isRecordingRef.current) {
+        pendingFinishRef.current = cancel;
+        return;
+      }
+      if (!isRecordingRef.current || isStoppingRecordingRef.current) return;
+
+      isStoppingRecordingRef.current = true;
+      const startedAt = recordingStartedAtRef.current ?? Date.now();
+      const statusAtRelease = recorder.getStatus();
+      const wallDurationAtRelease = Math.max(0, Date.now() - startedAt);
+      const durationMs = Math.min(
+        MAX_VOICE_DURATION_SECONDS * 1000,
+        Math.max(statusAtRelease.durationMillis, wallDurationAtRelease)
+      );
+      resetRecordingUi();
+      try {
+        const safeStopDelay = Math.max(
+          0,
+          MIN_NATIVE_RECORDING_MS - wallDurationAtRelease
+        );
+        if (safeStopDelay > 0) await wait(safeStopDelay);
+        if (recorder.getStatus().isRecording) await recorder.stop();
+        const uri = recorder.uri ?? recorder.getStatus().url;
+        await setAudioModeAsync({
+          allowsRecording: false,
+          playsInSilentMode: true,
+        });
+
+        if (!uri) throw new Error('The voice recording could not be saved.');
+        if (cancel || durationMs < MIN_VOICE_DURATION_MS) {
+          removeTemporaryRecording(uri);
+          if (!cancel) {
+            setVoiceNotice('Press and hold to record audio.');
+          }
+          return;
+        }
+
+        const isWeb = Platform.OS === 'web';
+        try {
+          await onVoiceRecorded({
+            uri,
+            durationMs: Math.round(durationMs),
+            fileName: `voice-${Date.now()}.${isWeb ? 'webm' : 'm4a'}`,
+            mimeType: isWeb ? 'audio/webm' : 'audio/mp4',
+          });
+        } finally {
+          removeTemporaryRecording(uri);
+        }
+      } catch {
+        resetRecordingUi();
+        setVoiceNotice('Recording was not saved. Press and hold to try again.');
+        await setAudioModeAsync({
+          allowsRecording: false,
+          playsInSilentMode: true,
+        }).catch(() => undefined);
+      } finally {
+        isStoppingRecordingRef.current = false;
+        pendingFinishRef.current = null;
+      }
+    },
+    [onVoiceRecorded, recorder, resetRecordingUi]
+  );
+
+  const startVoiceRecording = useCallback(async (): Promise<void> => {
+    if (
+      isMediaBusy ||
+      isSending ||
+      isStartingRecordingRef.current ||
+      isRecordingRef.current ||
+      isStoppingRecordingRef.current
+    ) {
+      return;
+    }
+
+    isStartingRecordingRef.current = true;
+    setVoiceError(null);
+    setVoiceNotice(null);
+    setAccessoryPanel(null);
+    Keyboard.dismiss();
+    try {
+      const existingPermission = await getRecordingPermissionsAsync();
+      const permission = existingPermission.granted
+        ? existingPermission
+        : await requestRecordingPermissionsAsync();
+      if (!permission.granted) {
+        throw new Error(
+          permission.canAskAgain
+            ? 'Microphone permission is required to record a voice message.'
+            : 'Microphone access is blocked. Enable it in your device settings.'
+        );
+      }
+      if (!existingPermission.granted) {
+        gestureActiveRef.current = false;
+        setVoiceNotice('Microphone is ready. Press and hold to record audio.');
+        return;
+      }
+      if (!gestureActiveRef.current) return;
+
+      await setAudioModeAsync({
+        allowsRecording: true,
+        playsInSilentMode: true,
+      });
+      const existingRecorderStatus = recorder.getStatus();
+      if (existingRecorderStatus.isRecording) {
+        throw new Error('A recording is already in progress.');
+      }
+      if (!existingRecorderStatus.canRecord) {
+        await recorder.prepareToRecordAsync();
+      }
+      if (!gestureActiveRef.current) {
+        await setAudioModeAsync({
+          allowsRecording: false,
+          playsInSilentMode: true,
+        });
+        return;
+      }
+
+      recorder.record({ forDuration: MAX_VOICE_DURATION_SECONDS });
+      recordingStartedAtRef.current = Date.now();
+      isRecordingRef.current = true;
+      setIsRecording(true);
+      maximumDurationTimerRef.current = setTimeout(() => {
+        void finishVoiceRecording(false);
+      }, MAX_VOICE_DURATION_SECONDS * 1000);
+    } catch (error: unknown) {
+      resetRecordingUi();
+      const message = error instanceof Error ? error.message : '';
+      if (/permission|blocked|settings/i.test(message)) {
+        setVoiceError(message);
+      } else {
+        setVoiceNotice(
+          'Recording could not start. Press and hold to try again.'
+        );
+      }
+      await setAudioModeAsync({
+        allowsRecording: false,
+        playsInSilentMode: true,
+      }).catch(() => undefined);
+    } finally {
+      isStartingRecordingRef.current = false;
+      if (pendingFinishRef.current !== null && isRecordingRef.current) {
+        const shouldCancel = pendingFinishRef.current;
+        pendingFinishRef.current = null;
+        void finishVoiceRecording(shouldCancel);
+      }
+    }
+  }, [
+    finishVoiceRecording,
+    isMediaBusy,
+    isSending,
+    recorder,
+    resetRecordingUi,
+  ]);
+
+  const voicePanResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onStartShouldSetPanResponder: () => !isMediaBusy && !isSending,
+        onMoveShouldSetPanResponder: () => !isMediaBusy && !isSending,
+        onPanResponderGrant: () => {
+          gestureActiveRef.current = true;
+          pendingFinishRef.current = null;
+          recordingTranslateX.setValue(0);
+          setVoiceError(null);
+          setVoiceNotice(null);
+          clearHoldTimer();
+          holdTimerRef.current = setTimeout(() => {
+            holdTimerRef.current = null;
+            if (gestureActiveRef.current) void startVoiceRecording();
+          }, HOLD_TO_RECORD_MS);
+        },
+        onPanResponderMove: (_event, gesture) => {
+          if (!isRecordingRef.current) return;
+          const nextX = Math.max(-120, Math.min(0, gesture.dx));
+          recordingTranslateX.setValue(nextX);
+          setIsCancelArmed(nextX <= CANCEL_SWIPE_DISTANCE);
+        },
+        onPanResponderRelease: (_event, gesture) => {
+          gestureActiveRef.current = false;
+          if (holdTimerRef.current) {
+            clearHoldTimer();
+            setVoiceNotice('Press and hold to record audio.');
+            return;
+          }
+          if (!isRecordingRef.current && isStartingRecordingRef.current) {
+            pendingFinishRef.current = gesture.dx <= CANCEL_SWIPE_DISTANCE;
+            setVoiceNotice('Press and hold to record audio.');
+            return;
+          }
+          void finishVoiceRecording(gesture.dx <= CANCEL_SWIPE_DISTANCE);
+        },
+        onPanResponderTerminate: () => {
+          gestureActiveRef.current = false;
+          clearHoldTimer();
+          void finishVoiceRecording(true);
+        },
+      }),
+    [
+      clearHoldTimer,
+      finishVoiceRecording,
+      isMediaBusy,
+      isSending,
+      recordingTranslateX,
+      startVoiceRecording,
+    ]
+  );
+
+  useEffect(() => {
+    if (!isRecording) return;
+    const nextLevel = normalizeMetering(recorderState.metering);
+    setRecordingLevels((current) => [...current.slice(1), nextLevel]);
+  }, [isRecording, recorderState.metering]);
+
+  useEffect(
+    () => () => {
+      if (maximumDurationTimerRef.current) {
+        clearTimeout(maximumDurationTimerRef.current);
+      }
+      clearHoldTimer();
+      if (isRecordingRef.current) void recorder.stop().catch(() => undefined);
+      void setAudioModeAsync({
+        allowsRecording: false,
+        playsInSilentMode: true,
+      }).catch(() => undefined);
+    },
+    [clearHoldTimer, recorder]
+  );
+
   const togglePanel = (panel: Exclude<AccessoryPanel, null>): void => {
+    setVoiceError(null);
+    setVoiceNotice(null);
     setAccessoryPanel((current) => {
       if (current === panel) return null;
       Keyboard.dismiss();
       return panel;
     });
-  };
-
-  const selectUnavailableAction = (label: string): void => {
-    setAccessoryPanel(null);
-    onUnavailableAction(label);
   };
 
   return (
@@ -132,9 +455,15 @@ export function MessageComposer({
         </View>
       ) : null}
 
-      {sendError ? (
+      {(voiceError ?? sendError) ? (
         <View style={styles.errorPill}>
-          <Text style={styles.errorText}>{sendError}</Text>
+          <Text style={styles.errorText}>{voiceError ?? sendError}</Text>
+        </View>
+      ) : null}
+
+      {voiceNotice ? (
+        <View style={styles.noticePill}>
+          <Text style={styles.connectionNotice}>{voiceNotice}</Text>
         </View>
       ) : null}
 
@@ -202,7 +531,10 @@ export function MessageComposer({
           Platform.OS === 'android' ? 'dimezisBlurView' : undefined
         }
         intensity={Platform.OS === 'android' ? 28 : 55}
-        style={[styles.composerGlass, isExpanded && styles.composerGlassExpanded]}
+        style={[
+          styles.composerGlass,
+          isExpanded && styles.composerGlassExpanded,
+        ]}
         tint={scheme === 'dark' ? 'dark' : 'light'}
       >
         <View style={styles.composerTint}>
@@ -214,7 +546,12 @@ export function MessageComposer({
                   Reply to {replyTo.senderName}
                 </Text>
                 <Text numberOfLines={1} style={styles.replyText}>
-                  {replyTo.content ?? (replyTo.mediaUrl ? 'Photo' : 'Message')}
+                  {replyTo.content ??
+                    (replyTo.audioDurationMs
+                      ? 'Voice message'
+                      : replyTo.mediaUrl
+                        ? 'Photo'
+                        : 'Message')}
                 </Text>
               </View>
               <Pressable
@@ -229,89 +566,144 @@ export function MessageComposer({
             </View>
           ) : null}
           <View style={styles.inputRow}>
-          <Pressable
-            accessibilityLabel="Open emoji and GIF picker"
-            accessibilityRole="button"
-            onPress={() => togglePanel('emoji')}
-            style={({ pressed }) => [
-              styles.iconButton,
-              accessoryPanel === 'emoji' && styles.iconButtonSelected,
-              pressed && styles.iconButtonPressed,
-            ]}
-          >
-            <MaterialIcons
-              color={c.textMuted}
-              name="sentiment-satisfied-alt"
-              size={25}
-            />
-          </Pressable>
+            {isRecording ? (
+              <View style={styles.recordingStatus}>
+                <MaterialIcons
+                  color={isCancelArmed ? c.error : c.textMuted}
+                  name="delete-outline"
+                  size={24}
+                />
+                <View style={styles.recordingDot} />
+                <Text style={styles.recordingTime}>
+                  {formatRecordingDuration(recorderState.durationMillis)}
+                </Text>
+                <View
+                  accessibilityLabel="Live recording level"
+                  accessibilityRole="progressbar"
+                  style={styles.recordingWaveform}
+                >
+                  {recordingLevels.map((level, index) => (
+                    <View
+                      key={index}
+                      style={[
+                        styles.recordingWaveformBar,
+                        { height: 4 + Math.round(level * 18) },
+                      ]}
+                    />
+                  ))}
+                </View>
+                <Text
+                  numberOfLines={1}
+                  style={[
+                    styles.slideToCancel,
+                    isCancelArmed && styles.slideToCancelArmed,
+                  ]}
+                >
+                  {isCancelArmed ? 'Release to delete' : '‹ Slide to cancel'}
+                </Text>
+              </View>
+            ) : (
+              <>
+                <Pressable
+                  accessibilityLabel="Open emoji and GIF picker"
+                  accessibilityRole="button"
+                  onPress={() => togglePanel('emoji')}
+                  style={({ pressed }) => [
+                    styles.iconButton,
+                    accessoryPanel === 'emoji' && styles.iconButtonSelected,
+                    pressed && styles.iconButtonPressed,
+                  ]}
+                >
+                  <MaterialIcons
+                    color={c.textMuted}
+                    name="sentiment-satisfied-alt"
+                    size={25}
+                  />
+                </Pressable>
 
-          <TextInput
-            accessibilityLabel="Message"
-            maxLength={2000}
-            multiline
-            onContentSizeChange={(event) =>
-              setInputHeight(
-                Math.max(44, Math.min(112, event.nativeEvent.contentSize.height))
-              )
-            }
-            onChangeText={(nextValue) => {
-              onChangeText(nextValue);
-              if (!nextValue) setInputHeight(44);
-            }}
-            onFocus={() => setAccessoryPanel(null)}
-            placeholder="Message"
-            placeholderTextColor={c.textMuted}
-            style={styles.input}
-            value={value}
-          />
-
-          <Pressable
-            accessibilityLabel="Open attachment menu"
-            accessibilityRole="button"
-            disabled={isMediaBusy}
-            onPress={() => togglePanel('attachments')}
-            style={({ pressed }) => [
-              styles.iconButton,
-              accessoryPanel === 'attachments' && styles.iconButtonSelected,
-              isMediaBusy && styles.buttonDisabled,
-              pressed && !isMediaBusy && styles.iconButtonPressed,
-            ]}
-          >
-            <MaterialIcons
-              color={c.textMuted}
-              name={isMediaBusy ? 'hourglass-top' : 'attach-file'}
-              size={25}
-            />
-          </Pressable>
-
-          <Pressable
-            accessibilityLabel={
-              hasSendableContent ? 'Send message' : 'Record voice message'
-            }
-            accessibilityRole="button"
-            disabled={hasSendableContent ? isSendDisabled : isMediaBusy}
-            onPress={
-              hasSendableContent
-                ? () => {
-                    setAccessoryPanel(null);
-                    onSend();
+                <TextInput
+                  accessibilityLabel="Message"
+                  maxLength={2000}
+                  multiline
+                  onContentSizeChange={(event) =>
+                    setInputHeight(
+                      Math.max(
+                        44,
+                        Math.min(112, event.nativeEvent.contentSize.height)
+                      )
+                    )
                   }
-                : () => selectUnavailableAction('Voice messages')
-            }
-            style={({ pressed }) => [
-              styles.primaryAction,
-              (hasSendableContent ? isSendDisabled : isMediaBusy) &&
-                styles.buttonDisabled,
-              pressed && styles.primaryActionPressed,
-            ]}
-          >
-            <MaterialIcons
-              color={c.onStateAction}
-              name={hasSendableContent ? 'send' : 'mic'}
-              size={23}
-            />
-          </Pressable>
+                  onChangeText={(nextValue) => {
+                    setVoiceError(null);
+                    setVoiceNotice(null);
+                    onChangeText(nextValue);
+                    if (!nextValue) setInputHeight(44);
+                  }}
+                  onFocus={() => setAccessoryPanel(null)}
+                  placeholder="Message"
+                  placeholderTextColor={c.textMuted}
+                  style={styles.input}
+                  value={value}
+                />
+
+                <Pressable
+                  accessibilityLabel="Open attachment menu"
+                  accessibilityRole="button"
+                  disabled={isMediaBusy}
+                  onPress={() => togglePanel('attachments')}
+                  style={({ pressed }) => [
+                    styles.iconButton,
+                    accessoryPanel === 'attachments' &&
+                      styles.iconButtonSelected,
+                    isMediaBusy && styles.buttonDisabled,
+                    pressed && !isMediaBusy && styles.iconButtonPressed,
+                  ]}
+                >
+                  <MaterialIcons
+                    color={c.textMuted}
+                    name={isMediaBusy ? 'hourglass-top' : 'attach-file'}
+                    size={25}
+                  />
+                </Pressable>
+              </>
+            )}
+
+            {hasSendableContent ? (
+              <Pressable
+                accessibilityLabel="Send message"
+                accessibilityRole="button"
+                disabled={isSendDisabled}
+                onPress={() => {
+                  setAccessoryPanel(null);
+                  onSend();
+                }}
+                style={({ pressed }) => [
+                  styles.primaryAction,
+                  isSendDisabled && styles.buttonDisabled,
+                  pressed && styles.primaryActionPressed,
+                ]}
+              >
+                <MaterialIcons color={c.onStateAction} name="send" size={23} />
+              </Pressable>
+            ) : (
+              <Animated.View
+                accessibilityHint="Hold to record, release to send, or slide left to delete"
+                accessibilityLabel="Record voice message"
+                accessibilityRole="button"
+                {...voicePanResponder.panHandlers}
+                style={[
+                  styles.primaryAction,
+                  isMediaBusy && styles.buttonDisabled,
+                  { transform: [{ translateX: recordingTranslateX }] },
+                ]}
+              >
+                <MaterialIcons
+                  color={scheme === 'light' ? '#FFFFFF' : '#11181C'}
+                  name="mic"
+                  size={23}
+                />
+              </Animated.View>
+            )}
           </View>
         </View>
       </BlurView>
@@ -434,6 +826,50 @@ const createStyles = (c: typeof colors.light) =>
       width: 44,
     },
     primaryActionPressed: { opacity: 0.76 },
+    recordingDot: {
+      backgroundColor: c.error,
+      borderRadius: 5,
+      height: 9,
+      marginLeft: 8,
+      width: 9,
+    },
+    recordingStatus: {
+      alignItems: 'center',
+      flex: 1,
+      flexDirection: 'row',
+      height: 44,
+      minWidth: 0,
+      paddingHorizontal: 8,
+    },
+    recordingTime: {
+      color: c.textPrimary,
+      fontSize: 15,
+      fontVariant: ['tabular-nums'],
+      marginLeft: 7,
+    },
+    recordingWaveform: {
+      alignItems: 'center',
+      flexDirection: 'row',
+      height: 24,
+      marginLeft: 10,
+      width: 58,
+    },
+    recordingWaveformBar: {
+      backgroundColor: c.accentPrimary,
+      borderRadius: 2,
+      flex: 1,
+      marginHorizontal: 1,
+      maxWidth: 3,
+      minHeight: 4,
+    },
+    slideToCancel: {
+      color: c.textMuted,
+      flex: 1,
+      fontSize: 13,
+      marginLeft: 8,
+      textAlign: 'center',
+    },
+    slideToCancelArmed: { color: c.error, fontWeight: '700' },
     cancelReply: {
       alignItems: 'center',
       height: 32,
