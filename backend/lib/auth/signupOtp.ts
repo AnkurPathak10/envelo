@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import { isIP } from "net";
 import { Prisma } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
@@ -13,6 +14,7 @@ const SEND_WINDOW_MS = 60 * 60 * 1000;
 const MAX_EMAIL_SENDS_PER_HOUR = 5;
 const MAX_IP_SENDS_PER_HOUR = 20;
 const MAX_VERIFICATION_ATTEMPTS = 5;
+const SERIALIZABLE_ATTEMPTS = 3;
 
 export type SignupOtpErrorCode =
   | "ACCOUNT_EXISTS"
@@ -125,10 +127,15 @@ export function matchesSignupOtp(
 }
 
 export function signupClientAddress(headers: Headers): string {
-  if (process.env.RENDER === "true") {
-    const forwarded = headers.get("x-forwarded-for")?.split(",")[0]?.trim();
-    if (forwarded && forwarded.length <= 128) return forwarded;
+  let forwarded: string | undefined;
+  if (process.env.VERCEL === "1") {
+    forwarded =
+      headers.get("x-vercel-forwarded-for")?.split(",")[0]?.trim() ||
+      headers.get("x-forwarded-for")?.split(",")[0]?.trim();
+  } else if (process.env.RENDER === "true") {
+    forwarded = headers.get("cf-connecting-ip")?.trim();
   }
+  if (forwarded && isIP(forwarded)) return forwarded;
   return "local-development";
 }
 
@@ -208,17 +215,35 @@ async function enforceSendLimits(
   return { emailHash, ipHash };
 }
 
-async function cleanupOldOtpState(
-  tx: Prisma.TransactionClient,
-  now: Date,
-): Promise<void> {
+async function cleanupOldOtpState(now: Date): Promise<void> {
   const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
   await Promise.all([
-    tx.pendingSignup.deleteMany({ where: { expiresAt: { lt: sevenDaysAgo } } }),
-    tx.emailOtpSendEvent.deleteMany({
+    prisma.pendingSignup.deleteMany({
+      where: { expiresAt: { lt: sevenDaysAgo } },
+    }),
+    prisma.emailOtpSendEvent.deleteMany({
       where: { createdAt: { lt: sevenDaysAgo } },
     }),
   ]);
+}
+
+async function retrySerializable<T>(work: () => Promise<T>): Promise<T> {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await work();
+    } catch (error: unknown) {
+      if (
+        attempt >= SERIALIZABLE_ATTEMPTS ||
+        !(error instanceof Prisma.PrismaClientKnownRequestError) ||
+        error.code !== "P2034"
+      ) {
+        throw error;
+      }
+      await new Promise((resolve) =>
+        setTimeout(resolve, 20 * attempt + crypto.randomInt(0, 21)),
+      );
+    }
+  }
 }
 
 function newCode(): string {
@@ -228,50 +253,40 @@ function newCode(): string {
 async function prepareInitialSend(
   input: InitialSignupInput,
 ): Promise<PreparedSend> {
-  const now = new Date();
+  await cleanupOldOtpState(new Date()).catch(() => undefined);
   const code = newCode();
-  return prisma.$transaction(
-    async (tx) => {
-      await cleanupOldOtpState(tx, now);
-      const existingUser = await tx.user.findUnique({
-        where: { email: input.email },
-        select: { id: true },
-      });
-      if (existingUser) {
-        throw new SignupOtpError(
-          "ACCOUNT_EXISTS",
-          "An account with this email already exists",
-          409,
-        );
-      }
-
-      const existing = await tx.pendingSignup.findUnique({
-        where: { email: input.email },
-      });
-      const { emailHash, ipHash } = await enforceSendLimits(
-        tx,
-        input.email,
-        input.clientAddress,
-        existing?.lastSentAt ?? null,
-        now,
-      );
-      const challengeId = existing?.id ?? crypto.randomUUID();
-      const otpHash = hashSignupOtp(challengeId, input.email, code);
-      const expiresAt = new Date(now.getTime() + OTP_EXPIRY_MS);
-      if (existing) {
-        await tx.pendingSignup.update({
-          where: { id: challengeId },
-          data: {
-            displayName: input.displayName,
-            passwordHash: input.passwordHash,
-            otpHash,
-            expiresAt,
-            attempts: 0,
-            lastSentAt: now,
-            deliveryAcceptedAt: null,
-          },
+  return retrySerializable(() =>
+    prisma.$transaction(
+      async (tx) => {
+        const now = new Date();
+        const existingUser = await tx.user.findUnique({
+          where: { email: input.email },
+          select: { id: true },
         });
-      } else {
+        if (existingUser) {
+          throw new SignupOtpError(
+            "ACCOUNT_EXISTS",
+            "An account with this email already exists",
+            409,
+          );
+        }
+
+        const existing = await tx.pendingSignup.findUnique({
+          where: { email: input.email },
+        });
+        const { emailHash, ipHash } = await enforceSendLimits(
+          tx,
+          input.email,
+          input.clientAddress,
+          existing?.lastSentAt ?? null,
+          now,
+        );
+        const challengeId = crypto.randomUUID();
+        const otpHash = hashSignupOtp(challengeId, input.email, code);
+        const expiresAt = new Date(now.getTime() + OTP_EXPIRY_MS);
+        if (existing) {
+          await tx.pendingSignup.delete({ where: { id: existing.id } });
+        }
         await tx.pendingSignup.create({
           data: {
             id: challengeId,
@@ -283,23 +298,23 @@ async function prepareInitialSend(
             lastSentAt: now,
           },
         });
-      }
-      const event = await tx.emailOtpSendEvent.create({
-        data: { emailHash, ipHash },
-        select: { id: true },
-      });
-      return {
-        challengeId,
-        email: input.email,
-        emailMasked: maskEmail(input.email),
-        code,
-        otpHash,
-        expiresAt,
-        resendAvailableAt: new Date(now.getTime() + SEND_COOLDOWN_MS),
-        eventId: event.id,
-      };
-    },
-    { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+        const event = await tx.emailOtpSendEvent.create({
+          data: { emailHash, ipHash },
+          select: { id: true },
+        });
+        return {
+          challengeId,
+          email: input.email,
+          emailMasked: maskEmail(input.email),
+          code,
+          otpHash,
+          expiresAt,
+          resendAvailableAt: new Date(now.getTime() + SEND_COOLDOWN_MS),
+          eventId: event.id,
+        };
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    ),
   );
 }
 
@@ -307,62 +322,64 @@ async function prepareResend(
   challengeId: string,
   clientAddress: string,
 ): Promise<PreparedSend> {
-  const now = new Date();
+  await cleanupOldOtpState(new Date()).catch(() => undefined);
   const code = newCode();
-  return prisma.$transaction(
-    async (tx) => {
-      await cleanupOldOtpState(tx, now);
-      const existing = await tx.pendingSignup.findUnique({
-        where: { id: challengeId },
-      });
-      if (!existing) {
-        throw new SignupOtpError(
-          "INVALID_CHALLENGE",
-          "This signup verification has expired. Please sign up again.",
-          400,
-        );
-      }
-      const completedUser = await tx.user.findUnique({
-        where: { email: existing.email },
-        select: { id: true },
-      });
-      if (completedUser) throw invalidCode();
+  return retrySerializable(() =>
+    prisma.$transaction(
+      async (tx) => {
+        const now = new Date();
+        const existing = await tx.pendingSignup.findUnique({
+          where: { id: challengeId },
+        });
+        if (!existing) {
+          throw new SignupOtpError(
+            "INVALID_CHALLENGE",
+            "This signup verification has expired. Please sign up again.",
+            400,
+          );
+        }
+        const completedUser = await tx.user.findUnique({
+          where: { email: existing.email },
+          select: { id: true },
+        });
+        if (completedUser) throw invalidCode();
 
-      const { emailHash, ipHash } = await enforceSendLimits(
-        tx,
-        existing.email,
-        clientAddress,
-        existing.lastSentAt,
-        now,
-      );
-      const otpHash = hashSignupOtp(existing.id, existing.email, code);
-      const expiresAt = new Date(now.getTime() + OTP_EXPIRY_MS);
-      await tx.pendingSignup.update({
-        where: { id: existing.id },
-        data: {
+        const { emailHash, ipHash } = await enforceSendLimits(
+          tx,
+          existing.email,
+          clientAddress,
+          existing.lastSentAt,
+          now,
+        );
+        const otpHash = hashSignupOtp(existing.id, existing.email, code);
+        const expiresAt = new Date(now.getTime() + OTP_EXPIRY_MS);
+        await tx.pendingSignup.update({
+          where: { id: existing.id },
+          data: {
+            otpHash,
+            expiresAt,
+            attempts: 0,
+            lastSentAt: now,
+            deliveryAcceptedAt: null,
+          },
+        });
+        const event = await tx.emailOtpSendEvent.create({
+          data: { emailHash, ipHash },
+          select: { id: true },
+        });
+        return {
+          challengeId: existing.id,
+          email: existing.email,
+          emailMasked: maskEmail(existing.email),
+          code,
           otpHash,
           expiresAt,
-          attempts: 0,
-          lastSentAt: now,
-          deliveryAcceptedAt: null,
-        },
-      });
-      const event = await tx.emailOtpSendEvent.create({
-        data: { emailHash, ipHash },
-        select: { id: true },
-      });
-      return {
-        challengeId: existing.id,
-        email: existing.email,
-        emailMasked: maskEmail(existing.email),
-        code,
-        otpHash,
-        expiresAt,
-        resendAvailableAt: new Date(now.getTime() + SEND_COOLDOWN_MS),
-        eventId: event.id,
-      };
-    },
-    { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+          resendAvailableAt: new Date(now.getTime() + SEND_COOLDOWN_MS),
+          eventId: event.id,
+        };
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    ),
   );
 }
 

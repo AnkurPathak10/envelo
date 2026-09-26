@@ -54,8 +54,8 @@ Complete these steps before endpoint implementation or live email testing:
    EMAIL_OTP_DAILY_CAP=250
    ```
 
-7. Add the same five variables to the backend web service's Environment settings in Render. They belong to the backend service, not the socket-server or Expo service.
-8. Restart the local backend after changing `.env`; redeploy/restart the Render backend after changing Render environment variables.
+7. Add the same five variables to the backend web service's Environment settings in Vercel. They belong to the backend service, not the Render socket server or Expo app.
+8. Restart the local backend after changing `.env`; redeploy the Vercel backend after changing its environment variables.
 
 `EMAIL_OTP_DAILY_CAP=250` intentionally leaves headroom beneath Brevo's current free-plan daily allowance. The backend must treat the configured cap as an application-wide ceiling, not as permission to ignore Brevo's own quota.
 
@@ -109,7 +109,7 @@ model EmailOtpSendEvent {
 
 `PendingSignup` is deliberately separate from `User`: an email becomes an account only after verification. It may contain the already-bcrypt-hashed password but must never contain a plaintext password or plaintext OTP.
 
-`deliveryAcceptedAt` prevents verification with a code whose provider request never reached an accepted state. `EmailOtpSendEvent` supports persistent rate limiting across backend restarts and Render instances: every attempt protects the per-email/per-IP windows, while only rows with `acceptedAt` consume the application-wide successful-send allowance. Hash normalized emails and client IP addresses with `EMAIL_OTP_HMAC_SECRET`; do not store raw IP addresses in this table. Old send events and expired pending signups should be removed by bounded opportunistic cleanup during OTP operations or a later maintenance task.
+`deliveryAcceptedAt` prevents verification with a code whose provider request never reached an accepted state. `EmailOtpSendEvent` supports persistent rate limiting across backend restarts and Vercel instances: every attempt protects the per-email/per-IP windows, while only rows with `acceptedAt` consume the application-wide successful-send allowance. Hash normalized emails and client IP addresses with `EMAIL_OTP_HMAC_SECRET`; do not store raw IP addresses in this table. Trust Vercel's forwarded client IP header on Vercel, or Cloudflare's connecting IP on a Render backend, rather than a caller-controlled `X-Forwarded-For` entry. Old send events and expired pending signups are removed outside the serializable send transactions so routine cleanup does not widen their conflict range.
 
 ## Signup Contract Changes
 
@@ -136,8 +136,8 @@ Behavior:
 3. Enforce the resend, per-email, per-IP, and global daily limits before generating or sending anything.
 4. Hash the password with the existing bcrypt helper.
 5. Generate the OTP with `crypto.randomInt(100000, 1000000)` and keep it as a six-character string.
-6. Generate or retain the pending-signup ID in application code (a cryptographically random UUID is acceptable), then hash the OTP with HMAC-SHA256 using `EMAIL_OTP_HMAC_SECRET`, binding at least that ID, normalized email, and OTP into the HMAC input. Never use an unsalted plain hash for a six-digit secret.
-7. Upsert the `PendingSignup` for this email. A permitted new request replaces the previous OTP hash, resets attempts, advances expiry, sets `deliveryAcceptedAt` back to null, and invalidates every older code.
+6. Generate a fresh pending-signup ID on every initial signup request (a cryptographically random UUID is acceptable), then hash the OTP with HMAC-SHA256 using `EMAIL_OTP_HMAC_SECRET`, binding at least that ID, normalized email, and OTP into the HMAC input. Never use an unsalted plain hash for a six-digit secret.
+7. Replace any existing `PendingSignup` for this email with a new row and ID after enforcing send limits. An older verification screen must no longer be able to submit a newer email code against its old challenge ID or inherit credentials from a different signup submitter. A resend for the current challenge keeps its ID and updates only its OTP fields.
 8. Create an unaccepted `EmailOtpSendEvent`, then send the email through Brevo. Do not include the password, password hash, API key, internal IDs, or authentication tokens in the email.
 9. When Brevo accepts the request, atomically set the pending challenge's `deliveryAcceptedAt` and the send event's `acceptedAt`. The challenge is not verifiable before this update succeeds.
 10. Return `202` without issuing access or refresh tokens:

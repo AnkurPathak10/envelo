@@ -158,7 +158,9 @@ export function VoiceMessagePlayer({
         <View style={styles.footer}>
           <Text style={styles.duration}>
             {formatDuration(
-              status.playing ? status.currentTime : durationMs / 1000
+              status.playing || status.currentTime > 0
+                ? status.currentTime
+                : durationMs / 1000
             )}
           </Text>
           <View style={styles.metadata}>

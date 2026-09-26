@@ -150,15 +150,6 @@ export default function VerifySignupScreen() {
       await verifySignUpOtp({ challengeId, code });
       router.replace('/(app)/home');
     } catch (caught: unknown) {
-      if (
-        caught instanceof ApiError &&
-        caught.status === 429 &&
-        caught.retryAfterSeconds
-      ) {
-        setResendAvailableAt(
-          new Date(Date.now() + caught.retryAfterSeconds * 1000).toISOString()
-        );
-      }
       setError(
         caught instanceof ApiError
           ? caught.message
@@ -182,6 +173,16 @@ export default function VerifySignupScreen() {
       setCode('');
       focusCodeInput();
     } catch (caught: unknown) {
+      if (
+        caught instanceof ApiError &&
+        caught.status === 429 &&
+        caught.retryAfterSeconds
+      ) {
+        setCountdown(caught.retryAfterSeconds);
+        setResendAvailableAt(
+          new Date(Date.now() + caught.retryAfterSeconds * 1000).toISOString()
+        );
+      }
       setError(
         caught instanceof ApiError
           ? caught.message
