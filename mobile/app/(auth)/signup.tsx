@@ -1,5 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Link } from 'expo-router';
+import { Link, useRouter } from 'expo-router';
 import { Controller, useForm } from 'react-hook-form';
 import { z } from 'zod';
 import {
@@ -36,6 +36,7 @@ const schema = z.object({
 type FormValues = z.infer<typeof schema>;
 export default function SignupScreen() {
   const { signUp } = useAuth();
+  const router = useRouter();
   const scheme = useAppColorScheme();
   const c = authColors[scheme];
   const styles = createStyles(c);
@@ -50,10 +51,19 @@ export default function SignupScreen() {
   });
   const submit = async (values: FormValues) => {
     try {
-      await signUp({
+      const challenge = await signUp({
         ...values,
         displayName: values.displayName.trim(),
         email: values.email.trim().toLowerCase(),
+      });
+      router.push({
+        pathname: '/(auth)/verify-signup',
+        params: {
+          challengeId: challenge.challengeId,
+          emailMasked: challenge.emailMasked,
+          expiresAt: challenge.expiresAt,
+          resendAvailableAt: challenge.resendAvailableAt,
+        },
       });
     } catch (error) {
       setError('root', {

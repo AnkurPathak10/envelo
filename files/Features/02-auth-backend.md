@@ -143,17 +143,21 @@ handler body.
 
 ### POST /api/auth/signup
 
+> **Feature 20 update:** The immediate account/token creation described below is superseded by `20-email-signup-otp-brevo.md`. Signup now returns a `202` pending verification challenge. The account and normal session are created only by `POST /api/auth/signup/verify-otp`; password login remains unchanged.
+
 **Request body:**
+
 ```json
 { "email": "string", "password": "string", "displayName": "string" }
 ```
 
 **Behavior:**
+
 1. Validate input with zod (valid email format; password minimum
    8 characters; displayName non-empty, reasonable max length).
 2. Check if a `User` with this email already exists. If so, return
    a 409 with a generic message (`"An account with this email
-   already exists"`) — this one case is fine to be specific, since
+already exists"`) — this one case is fine to be specific, since
    confirming an email is already taken is normal signup UX and
    not the same risk as a login-enumeration leak.
 3. Hash the password with bcrypt (cost factor 10–12).
@@ -161,6 +165,7 @@ handler body.
 5. Issue an access token and a refresh token (create the
    `RefreshToken` row with its hash).
 6. Return `201` with:
+
 ```json
 {
   "accessToken": "string",
@@ -172,11 +177,13 @@ handler body.
 ### POST /api/auth/login
 
 **Request body:**
+
 ```json
 { "email": "string", "password": "string" }
 ```
 
 **Behavior:**
+
 1. Validate input with zod.
 2. Look up the user by email.
 3. If no user found, OR the password doesn't match: return the
@@ -195,17 +202,19 @@ handler body.
 ### POST /api/auth/refresh
 
 **Request body:**
+
 ```json
 { "refreshToken": "string" }
 ```
 
 **Behavior:**
+
 1. Hash the provided refresh token (same HMAC method used at
    issuance) and look up a matching `RefreshToken` row by
    `tokenHash`.
 2. If no match, or `revokedAt` is set, or `expiresAt` is in the
    past: return `401` with `{ "error": "Invalid or expired refresh
-   token" }`. Do not distinguish between these cases in the
+token" }`. Do not distinguish between these cases in the
    response.
 3. If valid: mark the existing `RefreshToken` row's `revokedAt` to
    now (rotation — it can never be used again), then create a new
@@ -216,11 +225,13 @@ handler body.
 ### POST /api/auth/logout
 
 **Request body:**
+
 ```json
 { "refreshToken": "string" }
 ```
 
 **Behavior:**
+
 1. Hash the provided refresh token and mark the matching
    `RefreshToken` row's `revokedAt` to now, if found.
 2. Always return `200` with `{ "success": true }`, even if no

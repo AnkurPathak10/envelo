@@ -1,15 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { prisma } from "@/lib/prisma";
+
 import { hashPassword } from "@/lib/auth/password";
-import { signAccessToken, createRefreshTokenInDb } from "@/lib/auth/tokens";
-import { exposeRefreshToken, setWebRefreshCookie } from "@/lib/auth/webSession";
+import {
+  requestInitialSignupOtp,
+  signupClientAddress,
+  SignupOtpError,
+} from "@/lib/auth/signupOtp";
+import { prisma } from "@/lib/prisma";
 
 const signupSchema = z.object({
   email: z
     .string()
     .email("Invalid email address")
-    .transform((val) => val.trim().toLowerCase()),
+    .transform((value) => value.trim().toLowerCase()),
   password: z.string().min(8, "Password must be at least 8 characters long"),
   displayName: z
     .string()
@@ -34,46 +38,48 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const { email, password, displayName } = parsed.data;
-
-  const existingUser = await prisma.user.findUnique({
-    where: { email },
-  });
-
-  if (existingUser) {
+  try {
+    const existingUser = await prisma.user.findUnique({
+      where: { email: parsed.data.email },
+      select: { id: true },
+    });
+    if (existingUser) {
+      return NextResponse.json(
+        { error: "An account with this email already exists" },
+        { status: 409 },
+      );
+    }
+    const passwordHash = await hashPassword(parsed.data.password);
+    const challenge = await requestInitialSignupOtp({
+      email: parsed.data.email,
+      displayName: parsed.data.displayName,
+      passwordHash,
+      clientAddress: signupClientAddress(request.headers),
+    });
+    return NextResponse.json(challenge, { status: 202 });
+  } catch (error: unknown) {
+    if (error instanceof SignupOtpError) {
+      return NextResponse.json(
+        {
+          error: error.message,
+          ...(error.retryAfterSeconds
+            ? { retryAfterSeconds: error.retryAfterSeconds }
+            : {}),
+        },
+        {
+          status: error.status,
+          headers: error.retryAfterSeconds
+            ? { "Retry-After": String(error.retryAfterSeconds) }
+            : undefined,
+        },
+      );
+    }
     return NextResponse.json(
-      { error: "An account with this email already exists" },
-      { status: 409 },
+      {
+        error:
+          "Verification email is temporarily unavailable. Please try again later.",
+      },
+      { status: 503 },
     );
   }
-
-  const passwordHash = await hashPassword(password);
-
-  const user = await prisma.user.create({
-    data: {
-      email,
-      passwordHash,
-      displayName,
-    },
-    select: {
-      id: true,
-      email: true,
-      displayName: true,
-      avatarUrl: true,
-    },
-  });
-
-  const accessToken = signAccessToken(user.id);
-  const refreshToken = await createRefreshTokenInDb(user.id);
-
-  const response = NextResponse.json(
-    {
-      accessToken,
-      refreshToken: exposeRefreshToken(request, refreshToken),
-      user,
-    },
-    { status: 201 },
-  );
-  setWebRefreshCookie(request, response, refreshToken);
-  return response;
 }

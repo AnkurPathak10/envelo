@@ -15,15 +15,44 @@ export interface SignUpInput {
   password: string;
   displayName: string;
 }
+export interface SignupChallenge {
+  verificationRequired: true;
+  challengeId: string;
+  emailMasked: string;
+  expiresAt: string;
+  resendAvailableAt: string;
+}
+export interface VerifySignupOtpInput {
+  challengeId: string;
+  code: string;
+}
 export interface SignInInput {
   email: string;
   password: string;
 }
-export function signUp(input: SignUpInput): Promise<AuthResponse> {
-  return apiRequest<AuthResponse>('/api/auth/signup', {
+export function signUp(input: SignUpInput): Promise<SignupChallenge> {
+  return apiRequest<SignupChallenge>('/api/auth/signup', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
+    skipAuthRefresh: true,
+  });
+}
+export function verifySignUpOtp(
+  input: VerifySignupOtpInput
+): Promise<AuthResponse> {
+  return apiRequest<AuthResponse>('/api/auth/signup/verify-otp', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+    skipAuthRefresh: true,
+  });
+}
+export function resendSignUpOtp(challengeId: string): Promise<SignupChallenge> {
+  return apiRequest<SignupChallenge>('/api/auth/signup/resend-otp', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ challengeId }),
     skipAuthRefresh: true,
   });
 }

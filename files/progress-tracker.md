@@ -4,7 +4,7 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
-- Features 03, 04, 06, 09, 11, 13, 14, 15, 16, and 17 implemented - pending remaining manual real-device verification; Features 05, 07, 08, 10, and 12 complete
+- Features 03, 04, 06, 09, 11, 13, 14, 15, 16, 17, and 20 implemented - pending remaining manual real-device verification; Features 05, 07, 08, 10, and 12 complete
 
 ## Current Goal
 
@@ -12,8 +12,18 @@ Update this file after every meaningful implementation change.
 - Verify the app-wide warm-gray/rose dark theme on a real device across authentication, conversations, chat, and profile-photo update flows.
 - Verify Feature 18's light-theme chat and inbox colour placement on a real device; see the UI Upgrades section below.
 - Complete Feature 17's ten-case two-device verification checklist, including ImageKit dashboard compression/file-type checks and the offline text-message regression test
+- Complete one real signup on Expo Go and web with the configured Brevo sender, confirming delivery, OTP verification, resend timing, native SecureStore, and the browser refresh cookie.
 
 ## UI Upgrades
+
+- Feature 20: Signup Email Verification via OTP (Brevo) — implemented; live Brevo/real-device acceptance pending.
+  - Changed `POST /api/auth/signup` from immediate account creation to a `202` pending challenge. A user row, access token, and refresh token now exist only after `POST /api/auth/signup/verify-otp` accepts the six-digit code; normal email/password login is unchanged and never requests OTP.
+  - Added HMAC-SHA256-bound, single-use six-digit codes with ten-minute expiry, five guesses, 60-second resend cooldown, rolling email/IP send limits, a configurable UTC daily cap, hashed rate-limit identifiers, delivery-acceptance gating, and a finite-timeout backend-only Brevo REST adapter. API/OTP/password values are never returned or logged.
+  - Added and applied the Prisma migration for `PendingSignup`, `EmailOtpSendEvent`, and `User.emailVerifiedAt`; every existing account was backfilled from `createdAt` so no current user is forced through an OTP during login.
+  - Added the light-only Envelo verification screen with six accessible OTP cells, numeric/autofill/paste input, masked-email copy, server-timestamp-based resend countdown, error/submission states, and **Not your email?** plus Back actions that return to a fresh signup form.
+  - Android keyboard follow-up: tapping the OTP row now forces a safe blur/refocus cycle on its hidden numeric input. This reopens the number keyboard after the user manually dismisses it, while preserving the six-cell UI, autofill, paste, and resend behavior.
+  - Updated mobile auth state so a signup challenge is never stored as a session. Successful OTP verification alone enters the existing SecureStore/native or `HttpOnly` cookie/web session path.
+  - Verification passed: Prisma format/generation/migration/status, backend TypeScript and production build, mobile TypeScript, Expo lint, static web export, Android production bundle export, and repository whitespace checks. A live email was intentionally not sent automatically; final Expo Go/web acceptance remains manual.
 
 - Chat header, search, and expression upgrade — implemented; GIPHY key and real-device acceptance pending.
   - Replaced the title-only native chat header with an opaque custom row containing Back, the other participant's profile photo, name, and a three-dot menu. Inbox and newly created conversation navigation now pass the participant ID/avatar as display-only route state.

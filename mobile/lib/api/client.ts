@@ -19,7 +19,8 @@ interface ApiRequestOptions extends RequestInit {
 export class ApiError extends Error {
   constructor(
     message: string,
-    public readonly status: number
+    public readonly status: number,
+    public readonly retryAfterSeconds?: number
   ) {
     super(message);
     this.name = 'ApiError';
@@ -70,7 +71,9 @@ export function setSessionExpiredHandler(
   onSessionExpired = handler;
 }
 
-async function readErrorMessage(response: Response): Promise<string> {
+async function readError(
+  response: Response
+): Promise<{ message: string; retryAfterSeconds?: number }> {
   try {
     const body: unknown = await response.json();
     if (
@@ -78,12 +81,18 @@ async function readErrorMessage(response: Response): Promise<string> {
       body !== null &&
       'error' in body &&
       typeof body.error === 'string'
-    )
-      return body.error;
+    ) {
+      const retryAfterSeconds =
+        'retryAfterSeconds' in body &&
+        typeof body.retryAfterSeconds === 'number'
+          ? body.retryAfterSeconds
+          : undefined;
+      return { message: body.error, retryAfterSeconds };
+    }
   } catch {
     /* Fall back to a status-based error. */
   }
-  return `Request failed with status ${response.status}`;
+  return { message: `Request failed with status ${response.status}` };
 }
 async function fetchApi(
   path: string,
@@ -155,8 +164,10 @@ export async function apiRequest<T>(
       onSessionExpired?.();
     }
   }
-  if (!response.ok)
-    throw new ApiError(await readErrorMessage(response), response.status);
+  if (!response.ok) {
+    const error = await readError(response);
+    throw new ApiError(error.message, response.status, error.retryAfterSeconds);
+  }
   return (await response.json()) as T;
 }
 export async function refreshSessionFromStorage(): Promise<RefreshResponse | null> {

@@ -14,18 +14,47 @@ datasource db {
 }
 
 model User {
-  id           String   @id @default(cuid())
-  email        String   @unique
-  passwordHash String
-  displayName  String
-  avatarUrl    String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id              String    @id @default(cuid())
+  email           String    @unique
+  passwordHash    String
+  displayName     String
+  avatarUrl       String?
+  emailVerifiedAt DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   refreshTokens   RefreshToken[]
   conversations   ConversationParticipant[]
   messagesSent    Message[]                 @relation("MessagesSent")
   messageStatuses MessageStatus[]
+}
+
+model PendingSignup {
+  id                 String    @id @default(cuid())
+  email              String    @unique
+  displayName        String
+  passwordHash       String
+  otpHash            String
+  expiresAt          DateTime
+  attempts           Int       @default(0)
+  lastSentAt         DateTime
+  deliveryAcceptedAt DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@index([expiresAt])
+}
+
+model EmailOtpSendEvent {
+  id         String    @id @default(cuid())
+  emailHash  String
+  ipHash     String
+  acceptedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([emailHash, createdAt])
+  @@index([ipHash, createdAt])
+  @@index([createdAt])
 }
 
 model RefreshToken {

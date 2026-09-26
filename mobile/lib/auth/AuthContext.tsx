@@ -14,9 +14,12 @@ import {
   refreshSession,
   signIn,
   signUp,
+  verifySignUpOtp,
   type AuthResponse,
   type SignInInput,
+  type SignupChallenge,
   type SignUpInput,
+  type VerifySignupOtpInput,
 } from '@/lib/api/auth';
 import { clearTokens, getTokens, saveTokens } from '@/lib/auth/storage';
 import {
@@ -30,7 +33,8 @@ interface AuthContextValue {
   accessToken: string | null;
   isLoading: boolean;
   signIn: (input: SignInInput) => Promise<void>;
-  signUp: (input: SignUpInput) => Promise<void>;
+  signUp: (input: SignUpInput) => Promise<SignupChallenge>;
+  verifySignUpOtp: (input: VerifySignupOtpInput) => Promise<void>;
   signOut: () => Promise<void>;
   refreshAccessToken: () => Promise<string | null>;
   updateUser: (user: ApiUser) => Promise<void>;
@@ -85,8 +89,13 @@ export function AuthProvider({ children }: PropsWithChildren) {
     async (input: SignInInput) => completeAuthentication(await signIn(input)),
     [completeAuthentication]
   );
-  const authenticateWithSignUp = useCallback(
-    async (input: SignUpInput) => completeAuthentication(await signUp(input)),
+  const requestSignupVerification = useCallback(
+    (input: SignUpInput) => signUp(input),
+    []
+  );
+  const authenticateWithSignupOtp = useCallback(
+    async (input: VerifySignupOtpInput) =>
+      completeAuthentication(await verifySignUpOtp(input)),
     [completeAuthentication]
   );
   const refreshAccessToken = useCallback(async (): Promise<string | null> => {
@@ -195,7 +204,8 @@ export function AuthProvider({ children }: PropsWithChildren) {
       accessToken,
       isLoading,
       signIn: authenticateWithSignIn,
-      signUp: authenticateWithSignUp,
+      signUp: requestSignupVerification,
+      verifySignUpOtp: authenticateWithSignupOtp,
       signOut,
       refreshAccessToken,
       updateUser,
@@ -203,9 +213,10 @@ export function AuthProvider({ children }: PropsWithChildren) {
     [
       accessToken,
       authenticateWithSignIn,
-      authenticateWithSignUp,
+      authenticateWithSignupOtp,
       isLoading,
       refreshAccessToken,
+      requestSignupVerification,
       signOut,
       updateUser,
       user,

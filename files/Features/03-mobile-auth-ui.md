@@ -161,6 +161,8 @@ Behavior:
 
 ### Signup (`app/(auth)/signup.tsx`)
 
+> **Feature 20 update:** Signup is now a two-step flow. The form requests a Brevo-backed signup challenge, then routes to the light-only `verify-signup.tsx` screen. Only successful OTP verification is passed through `AuthContext` and stored as an authenticated session. Login remains email/password only.
+
 - Fields: email, password, display name (matches
   `02-auth-backend.md`'s signup contract)
 - Client-side validation via `react-hook-form` + a `zod` schema
