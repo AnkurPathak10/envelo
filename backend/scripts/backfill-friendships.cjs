@@ -27,11 +27,6 @@ async function main() {
         },
       });
       if (!current) return "gone";
-      if (current._count.messages === 0) {
-        if (!dryRun)
-          await tx.conversation.delete({ where: { id: conversation.id } });
-        return "empty";
-      }
       if (current.participants.length !== 2) return "malformed";
       const [requesterId, addresseeId] = current.participants
         .map((participant) => participant.userId)
@@ -47,6 +42,11 @@ async function main() {
         select: { id: true },
       });
       if (accepted) return "alreadyAccepted";
+      if (current._count.messages === 0) {
+        if (!dryRun)
+          await tx.conversation.delete({ where: { id: conversation.id } });
+        return "empty";
+      }
       if (!dryRun) {
         await tx.friendship.upsert({
           where: { requesterId_addresseeId: { requesterId, addresseeId } },

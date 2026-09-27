@@ -3,6 +3,7 @@ import { Expo, type ExpoPushMessage } from "expo-server-sdk";
 import { prisma } from "@/lib/prisma";
 
 const expo = new Expo();
+const RECEIPT_DELAY_MS = 15 * 60 * 1000;
 
 export async function sendFriendRequestPush(
   requestId: string,
@@ -40,8 +41,16 @@ export async function sendFriendRequestPush(
     for (const chunk of expo.chunkPushNotifications(messages)) {
       try {
         const tickets = await expo.sendPushNotificationsAsync(chunk);
+        const receipts: { id: string; token: string; checkAfter: Date }[] = [];
         for (const [index, ticket] of tickets.entries()) {
-          if (ticket.status !== "error") continue;
+          if (ticket.status === "ok") {
+            receipts.push({
+              id: ticket.id,
+              token: chunk[index].to as string,
+              checkAfter: new Date(Date.now() + RECEIPT_DELAY_MS),
+            });
+            continue;
+          }
           if (ticket.details?.error === "DeviceNotRegistered") {
             await prisma.pushToken.deleteMany({
               where: { token: chunk[index].to as string },
@@ -50,8 +59,14 @@ export async function sendFriendRequestPush(
             console.warn("Friend push ticket failed", ticket.details?.error);
           }
         }
+        if (receipts.length > 0) {
+          await prisma.pushReceipt.createMany({
+            data: receipts,
+            skipDuplicates: true,
+          });
+        }
       } catch {
-        console.warn("Friend push delivery failed");
+        console.warn("Friend push send or receipt persistence failed");
       }
     }
   } catch {

@@ -5,7 +5,10 @@ import { router, useRootNavigationState } from 'expo-router';
 import { useEffect, useRef } from 'react';
 import { AppState, Platform } from 'react-native';
 
-import { registerPushToken } from '@/lib/api/push';
+import {
+  registerPushToken,
+  retryPendingPushTokenRemovals,
+} from '@/lib/api/push';
 import { useAuth } from '@/lib/auth/AuthContext';
 
 if (Platform.OS !== 'web') {
@@ -71,6 +74,19 @@ export function PushNotifications() {
   const handledResponseId = useRef<string | null>(null);
   const userId = user?.id;
   const navigationReady = Boolean(rootNavigationState?.key);
+
+  useEffect(() => {
+    const retry = () => {
+      void retryPendingPushTokenRemovals().catch((error) => {
+        console.warn('Push token removal retry unavailable', error);
+      });
+    };
+    retry();
+    const appState = AppState.addEventListener('change', (state) => {
+      if (state === 'active') retry();
+    });
+    return () => appState.remove();
+  }, []);
 
   useEffect(() => {
     if (!userId || !isPushSupported()) return;

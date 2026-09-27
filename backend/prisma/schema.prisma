@@ -42,6 +42,16 @@ model PushToken {
   @@index([userId])
 }
 
+model PushReceipt {
+  id           String   @id
+  token        String
+  createdAt    DateTime @default(now())
+  checkAfter   DateTime
+  attempts     Int      @default(0)
+
+  @@index([checkAfter])
+}
+
 enum FriendshipStatus {
   PENDING
   ACCEPTED

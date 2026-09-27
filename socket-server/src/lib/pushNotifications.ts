@@ -4,6 +4,7 @@ import type { TextMessagePayload } from "./messages";
 import { prisma } from "./prisma";
 
 const expo = new Expo();
+const RECEIPT_DELAY_MS = 15 * 60 * 1000;
 
 function preview(message: TextMessagePayload): string {
   const content = message.content?.replace(/\s+/g, " ").trim();
@@ -50,8 +51,16 @@ export async function sendMessagePush(
     for (const chunk of expo.chunkPushNotifications(messages)) {
       try {
         const tickets = await expo.sendPushNotificationsAsync(chunk);
+        const receipts: { id: string; token: string; checkAfter: Date }[] = [];
         for (const [index, ticket] of tickets.entries()) {
-          if (ticket.status !== "error") continue;
+          if (ticket.status === "ok") {
+            receipts.push({
+              id: ticket.id,
+              token: chunk[index].to as string,
+              checkAfter: new Date(Date.now() + RECEIPT_DELAY_MS),
+            });
+            continue;
+          }
           if (ticket.details?.error === "DeviceNotRegistered") {
             await prisma.pushToken.deleteMany({
               where: { token: chunk[index].to as string },
@@ -60,8 +69,14 @@ export async function sendMessagePush(
             console.warn("Message push ticket failed", ticket.details?.error);
           }
         }
+        if (receipts.length > 0) {
+          await prisma.pushReceipt.createMany({
+            data: receipts,
+            skipDuplicates: true,
+          });
+        }
       } catch {
-        console.warn("Message push delivery failed");
+        console.warn("Message push send or receipt persistence failed");
       }
     }
   } catch {

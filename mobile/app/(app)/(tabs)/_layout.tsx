@@ -113,9 +113,10 @@ function TabNavigator() {
 }
 
 export default function TabsLayout() {
+  const { user } = useAuth();
   return (
     <InboxBadgeProvider>
-      <FriendRequestsProvider>
+      <FriendRequestsProvider key={user?.id ?? 'signed-out'}>
         <TabNavigator />
       </FriendRequestsProvider>
     </InboxBadgeProvider>

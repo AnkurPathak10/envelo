@@ -17,6 +17,7 @@ import type {
   ServerToClientEvents,
   SocketData,
 } from "./lib/messages";
+import { startPushReceiptWorker } from "./lib/pushReceipts";
 import { userRoom } from "./lib/rooms";
 
 const app = express();
@@ -99,4 +100,5 @@ io.on("connection", (socket) => {
 
 httpServer.listen(env.port, () => {
   console.log(`Socket server listening on port ${env.port}`);
+  startPushReceiptWorker();
 });

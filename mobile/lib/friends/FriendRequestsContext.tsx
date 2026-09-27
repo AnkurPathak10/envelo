@@ -31,9 +31,10 @@ export function FriendRequestsProvider({ children }: PropsWithChildren) {
   const [error, setError] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
   const sequence = useRef(0);
+  const userId = user?.id;
 
   const refresh = useCallback(async () => {
-    if (!user) return;
+    if (!userId) return;
     const current = ++sequence.current;
     setLoading(true);
     try {
@@ -48,7 +49,14 @@ export function FriendRequestsProvider({ children }: PropsWithChildren) {
     } finally {
       if (current === sequence.current) setLoading(false);
     }
-  }, [user]);
+  }, [userId]);
+
+  useEffect(() => {
+    sequence.current += 1;
+    setRequests([]);
+    setError(null);
+    setLoading(Boolean(userId));
+  }, [userId]);
 
   const notifyChanged = useCallback(async () => {
     setRevision((current) => current + 1);
