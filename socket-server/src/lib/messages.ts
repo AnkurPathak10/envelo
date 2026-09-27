@@ -93,6 +93,11 @@ export interface MessageStatusPayload {
   status: "DELIVERED" | "READ";
 }
 
+export interface FriendRequestEvent {
+  requestId: string;
+  status: "PENDING" | "ACCEPTED" | "REJECTED";
+}
+
 export interface ConversationVisibilityPayload {
   conversationId: string;
   clearedAt: string | null;
@@ -131,6 +136,7 @@ export interface ClientToServerEvents {
 }
 
 export interface ServerToClientEvents {
+  "friend:request": (event: FriendRequestEvent) => void;
   "message:new": (message: TextMessagePayload) => void;
   "message:status": (status: MessageStatusPayload) => void;
   "conversation:visibility": (

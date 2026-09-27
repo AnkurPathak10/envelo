@@ -75,11 +75,17 @@ export interface ConversationVisibilityUpdate {
   deletedAt: string | null;
 }
 
+export interface FriendRequestEvent {
+  requestId: string;
+  status: 'PENDING' | 'ACCEPTED' | 'REJECTED';
+}
+
 export type ConversationVisibilityAcknowledgement =
   | { success: true; visibility: ConversationVisibilityUpdate }
   | { success: false; error: string };
 
 interface ServerToClientEvents {
+  'friend:request': (event: FriendRequestEvent) => void;
   'message:new': (message: SocketTextMessage) => void;
   'message:status': (update: MessageStatusUpdate) => void;
   'conversation:visibility': (update: ConversationVisibilityUpdate) => void;
@@ -113,6 +119,7 @@ interface ClientToServerEvents {
 }
 
 type NewMessageListener = ServerToClientEvents['message:new'];
+type FriendRequestListener = ServerToClientEvents['friend:request'];
 type MessageStatusListener = ServerToClientEvents['message:status'];
 type ConversationVisibilityListener =
   ServerToClientEvents['conversation:visibility'];
@@ -173,6 +180,7 @@ interface SocketContextValue {
   subscribeToNewMessages: (
     listener: ServerToClientEvents['message:new']
   ) => () => void;
+  subscribeToFriendRequests: (listener: FriendRequestListener) => () => void;
   subscribeToMessageStatuses: (listener: MessageStatusListener) => () => void;
   subscribeToConversationVisibility: (
     listener: ConversationVisibilityListener
@@ -180,11 +188,13 @@ interface SocketContextValue {
 }
 
 const SocketContext = createContext<SocketContextValue | undefined>(undefined);
-const SEND_TIMEOUT_MS = 10_000;
+const SEND_TIMEOUT_MS = 20_000;
 const DELIVERY_BATCH_DELAY_MS = 300;
 const DELIVERY_RETRY_BASE_DELAY_MS = 500;
 const MAX_DELIVERY_RETRIES = 3;
 const MAX_DELIVERY_BATCH_SIZE = 100;
+const PENDING_SEND_RETRY_BASE_DELAY_MS = 2_000;
+const MAX_PENDING_SEND_RETRIES = 3;
 
 function pendingMediaExtension(message: PendingMessage): string {
   return message.kind === 'audio'
@@ -229,6 +239,7 @@ export function SocketProvider({ children }: PropsWithChildren) {
   currentUserIdRef.current = user?.id;
   const socketRef = useRef<EnveloSocket | null>(null);
   const messageListenersRef = useRef(new Set<NewMessageListener>());
+  const friendRequestListenersRef = useRef(new Set<FriendRequestListener>());
   const messageStatusListenersRef = useRef(new Set<MessageStatusListener>());
   const conversationVisibilityListenersRef = useRef(
     new Set<ConversationVisibilityListener>()
@@ -243,6 +254,10 @@ export function SocketProvider({ children }: PropsWithChildren) {
     (clientMessageId: string) => Promise<void>
   >(async () => undefined);
   const pendingQueueFlushRef = useRef<() => void>(() => undefined);
+  const pendingQueueRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  );
+  const pendingQueueRetryCountRef = useRef(0);
   const isPendingQueueFlushRunningRef = useRef(false);
   const pendingQueueFlushRequestedRef = useRef(false);
   const pendingMutationRevisionRef = useRef(0);
@@ -365,6 +380,7 @@ export function SocketProvider({ children }: PropsWithChildren) {
       setConnectionState('connected');
       setConnectionEpoch((epoch) => epoch + 1);
       deliveryRetryCountRef.current = 0;
+      pendingQueueRetryCountRef.current = 0;
       scheduleDeliveryFlush();
       pendingQueueFlushRef.current();
     };
@@ -395,6 +411,9 @@ export function SocketProvider({ children }: PropsWithChildren) {
       }
       for (const listener of messageListenersRef.current) listener(message);
     };
+    const handleFriendRequest: FriendRequestListener = (event) => {
+      for (const listener of friendRequestListenersRef.current) listener(event);
+    };
     const handleMessageStatus: MessageStatusListener = (update) => {
       for (const listener of messageStatusListenersRef.current)
         listener(update);
@@ -411,6 +430,7 @@ export function SocketProvider({ children }: PropsWithChildren) {
     socket.on('disconnect', handleDisconnect);
     socket.on('connect_error', handleConnectError);
     socket.on('message:new', handleNewMessage);
+    socket.on('friend:request', handleFriendRequest);
     socket.on('message:status', handleMessageStatus);
     socket.on('conversation:visibility', handleConversationVisibility);
     socket.io.on('reconnect_attempt', handleReconnectAttempt);
@@ -422,6 +442,7 @@ export function SocketProvider({ children }: PropsWithChildren) {
       socket.off('disconnect', handleDisconnect);
       socket.off('connect_error', handleConnectError);
       socket.off('message:new', handleNewMessage);
+      socket.off('friend:request', handleFriendRequest);
       socket.off('message:status', handleMessageStatus);
       socket.off('conversation:visibility', handleConversationVisibility);
       socket.io.off('reconnect_attempt', handleReconnectAttempt);
@@ -546,6 +567,7 @@ export function SocketProvider({ children }: PropsWithChildren) {
 
     isPendingQueueFlushRunningRef.current = true;
     pendingQueueFlushRequestedRef.current = false;
+    let shouldRetry = false;
     try {
       const flushRevision = pendingMutationRevisionRef.current;
       const queuedMessages = await getPendingMessages(senderId);
@@ -661,30 +683,70 @@ export function SocketProvider({ children }: PropsWithChildren) {
                   }
                 );
               }
-              if (!resolvedAcknowledgement.ok) break;
+              if (!resolvedAcknowledgement.ok) {
+                if (resolvedAcknowledgement.error === 'Unable to send message') {
+                  shouldRetry = true;
+                }
+                break;
+              }
 
               await confirmPendingMessage(pendingMessage.clientMessageId);
+              pendingQueueRetryCountRef.current = 0;
               if (currentUserIdRef.current !== senderId) break;
               for (const listener of messageListenersRef.current) {
                 listener(resolvedAcknowledgement.message);
               }
             } catch {
+              shouldRetry = true;
               break;
             }
           }
         })
       );
+    } catch {
+      shouldRetry = true;
     } finally {
       isPendingQueueFlushRunningRef.current = false;
       if (pendingQueueFlushRequestedRef.current) {
         pendingQueueFlushRequestedRef.current = false;
         pendingQueueFlushRef.current();
+      } else if (
+        shouldRetry &&
+        currentUserIdRef.current === senderId &&
+        socketRef.current === flushSocket &&
+        flushSocket.connected &&
+        pendingQueueRetryCountRef.current < MAX_PENDING_SEND_RETRIES &&
+        !pendingQueueRetryTimerRef.current
+      ) {
+        const retryDelay =
+          PENDING_SEND_RETRY_BASE_DELAY_MS *
+          2 ** pendingQueueRetryCountRef.current;
+        pendingQueueRetryCountRef.current += 1;
+        pendingQueueRetryTimerRef.current = setTimeout(() => {
+          pendingQueueRetryTimerRef.current = null;
+          pendingQueueFlushRef.current();
+        }, retryDelay);
       }
     }
   }, [confirmPendingMessage, user?.id]);
   pendingQueueFlushRef.current = () => {
+    if (pendingQueueRetryTimerRef.current) {
+      clearTimeout(pendingQueueRetryTimerRef.current);
+      pendingQueueRetryTimerRef.current = null;
+    }
     void flushPendingQueue();
   };
+
+  useEffect(
+    () => () => {
+      if (pendingQueueRetryTimerRef.current) {
+        clearTimeout(pendingQueueRetryTimerRef.current);
+        pendingQueueRetryTimerRef.current = null;
+      }
+      pendingQueueRetryCountRef.current = 0;
+    },
+    [user?.id]
+  );
 
   const queueMessage = useCallback(
     async (
@@ -816,6 +878,7 @@ export function SocketProvider({ children }: PropsWithChildren) {
       }
 
       if (currentUserIdRef.current === senderId) {
+        pendingQueueRetryCountRef.current = 0;
         pendingQueueFlushRef.current();
       }
       return pendingMessage;
@@ -934,6 +997,14 @@ export function SocketProvider({ children }: PropsWithChildren) {
       return () => {
         messageListenersRef.current.delete(listener);
       };
+    },
+    []
+  );
+
+  const subscribeToFriendRequests = useCallback(
+    (listener: FriendRequestListener): (() => void) => {
+      friendRequestListenersRef.current.add(listener);
+      return () => friendRequestListenersRef.current.delete(listener);
     },
     []
   );
@@ -1064,6 +1135,7 @@ export function SocketProvider({ children }: PropsWithChildren) {
       retryConnection,
       sendMessage,
       subscribeToNewMessages,
+      subscribeToFriendRequests,
       subscribeToMessageStatuses,
       subscribeToConversationVisibility,
     }),
@@ -1081,6 +1153,7 @@ export function SocketProvider({ children }: PropsWithChildren) {
       retryConnection,
       sendMessage,
       subscribeToNewMessages,
+      subscribeToFriendRequests,
       subscribeToMessageStatuses,
       subscribeToConversationVisibility,
     ]

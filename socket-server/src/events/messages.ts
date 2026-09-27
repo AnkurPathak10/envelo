@@ -9,6 +9,7 @@ import {
   type MessageSendAcknowledgement,
 } from "../lib/messages";
 import { prisma } from "../lib/prisma";
+import { sendMessagePush } from "../lib/pushNotifications";
 import { userRoom } from "../lib/rooms";
 
 async function findExistingClientMessage(
@@ -143,6 +144,9 @@ export function registerMessageHandlers(
           message,
           participants: senderParticipant.conversation.participants,
         };
+      }, {
+        maxWait: 5_000,
+        timeout: 15_000,
       });
 
       if (!transactionResult || "invalidReply" in transactionResult) {
@@ -181,6 +185,10 @@ export function registerMessageHandlers(
         );
       }
       acknowledge?.({ ok: true, message: senderMessage });
+      const recipientIds = transactionResult.participants
+        .map((participant) => participant.userId)
+        .filter((userId) => userId !== senderId);
+      void sendMessagePush(senderId, recipientIds, senderMessage);
     } catch (error: unknown) {
       if (
         clientMessageId &&
@@ -205,6 +213,7 @@ export function registerMessageHandlers(
 
       console.error(
         `message:send persistence failure, socket: ${socket.id}, user: ${senderId}`,
+        error,
       );
       const result: MessageSendAcknowledgement = {
         ok: false,

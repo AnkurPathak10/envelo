@@ -148,7 +148,7 @@ export default function VerifySignupScreen() {
     setIsVerifying(true);
     try {
       await verifySignUpOtp({ challengeId, code });
-      router.replace('/(app)/home');
+      router.replace('/(app)/(tabs)/chats');
     } catch (caught: unknown) {
       setError(
         caught instanceof ApiError

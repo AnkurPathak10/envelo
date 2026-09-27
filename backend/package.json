@@ -6,11 +6,13 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "verify:friends": "node --env-file=.env scripts/verify-friend-flow.cjs",
     "postinstall": "prisma skills sync || exit 0"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",
     "bcrypt": "^6.0.0",
+    "expo-server-sdk": "^7.2.0",
     "jsonwebtoken": "^9.0.2",
     "next": "^15.3.0",
     "react": "^19.1.0",

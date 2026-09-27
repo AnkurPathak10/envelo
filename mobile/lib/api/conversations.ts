@@ -7,6 +7,15 @@ export interface ConversationParticipant {
   avatarUrl: string | null;
 }
 
+export type FriendStatus =
+  'NONE' | 'PENDING_OUTGOING' | 'PENDING_INCOMING' | 'FRIENDS' | 'COOLDOWN';
+
+export interface SearchUser extends ConversationParticipant {
+  friendStatus: FriendStatus;
+  cooldownEndsAt?: string;
+  incomingRequestId?: string;
+}
+
 export interface ConversationListItem {
   id: string;
   createdAt: string;
@@ -60,7 +69,7 @@ interface ConversationListResponse {
 }
 
 interface UserSearchResponse {
-  users: ConversationParticipant[];
+  users: SearchUser[];
 }
 
 interface DirectConversationResponse {
@@ -78,9 +87,7 @@ export async function getConversations(): Promise<ConversationListItem[]> {
   return response.conversations;
 }
 
-export async function searchUsers(
-  query: string
-): Promise<ConversationParticipant[]> {
+export async function searchUsers(query: string): Promise<SearchUser[]> {
   const response = await apiRequest<UserSearchResponse>(
     `/api/users?query=${encodeURIComponent(query)}`
   );

@@ -1,7 +1,9 @@
 import cors from "cors";
+import crypto from "node:crypto";
 import express from "express";
 import { createServer } from "node:http";
 import { Server } from "socket.io";
+import { z } from "zod";
 
 import { verifySocketToken } from "./auth/verifySocketToken";
 import { registerConversationVisibilityHandler } from "./events/conversationVisibility";
@@ -30,6 +32,53 @@ const io = new Server<
   InterServerEvents,
   SocketData
 >(httpServer, { cors: { origin: "*" } });
+
+const friendEventSchema = z.object({
+  requestId: z.string().min(1),
+  status: z.enum(["PENDING", "ACCEPTED", "REJECTED"]),
+  userIds: z.array(z.string().min(1)).min(1).max(2),
+});
+
+app.post(
+  "/internal/friend-event",
+  express.json({ limit: "2kb" }),
+  (request, response) => {
+    const parsed = friendEventSchema.safeParse(request.body);
+    const timestamp = request.header("x-envelo-timestamp");
+    const signature = request.header("x-envelo-signature");
+    if (
+      !parsed.success ||
+      !timestamp ||
+      !signature ||
+      !/^\d+$/.test(timestamp) ||
+      Math.abs(Date.now() - Number(timestamp)) > 30_000
+    ) {
+      response.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+    const { requestId, status } = parsed.data;
+    const userIds = [...new Set(parsed.data.userIds)].sort();
+    const payload = `${timestamp}.${requestId}.${status}.${userIds.join(",")}`;
+    const expected = crypto
+      .createHmac("sha256", env.jwtAccessSecret)
+      .update(payload)
+      .digest();
+    const received = /^[a-f0-9]{64}$/i.test(signature)
+      ? Buffer.from(signature, "hex")
+      : Buffer.alloc(0);
+    if (
+      received.length !== expected.length ||
+      !crypto.timingSafeEqual(received, expected)
+    ) {
+      response.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+    for (const userId of userIds) {
+      io.to(userRoom(userId)).emit("friend:request", { requestId, status });
+    }
+    response.status(202).json({ ok: true });
+  },
+);
 
 io.use(verifySocketToken);
 io.on("connection", (socket) => {

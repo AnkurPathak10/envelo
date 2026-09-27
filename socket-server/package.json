@@ -10,12 +10,14 @@
     "start": "node dist/index.js",
     "verify:message-flow": "ts-node-dev --transpile-only scripts/verify-message-flow.ts",
     "verify:offline-queue": "ts-node-dev --transpile-only scripts/verify-offline-queue-flow.ts",
-    "verify:message-status": "ts-node-dev --transpile-only scripts/verify-message-status-flow.ts"
+    "verify:message-status": "ts-node-dev --transpile-only scripts/verify-message-status-flow.ts",
+    "verify:friend-notification": "node --env-file=.env scripts/verify-friend-notification.cjs"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",
     "cors": "^2.8.5",
     "dotenv": "^16.6.1",
+    "expo-server-sdk": "^7.2.0",
     "express": "^5.1.0",
     "jsonwebtoken": "^9.0.2",
     "socket.io": "^4.8.1",

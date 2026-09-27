@@ -1,12 +1,11 @@
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useFocusEffect, useIsFocused } from '@react-navigation/native';
-import { router, type Href } from 'expo-router';
+import { router } from 'expo-router';
 import {
   ActivityIndicator,
   AppState,
   FlatList,
-  Modal,
   Platform,
   Pressable,
   StyleSheet,
@@ -14,15 +13,14 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import {
-  SafeAreaView,
-  useSafeAreaInsets,
-} from 'react-native-safe-area-context';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ConversationRow } from '@/components/conversations/conversation-row';
-import { ConversationAvatar } from '@/components/conversations/conversation-avatar';
 import { EmptyConversationList } from '@/components/conversations/empty-conversation-list';
-import { UserSearchResult } from '@/components/conversations/user-search-result';
+import {
+  FriendSearchRow,
+  type FriendSearchAction,
+} from '@/components/friends/friend-search-row';
 import { messagingColors as colors, radius, spacing } from '@/constants/theme';
 import { ApiError, isConnectivityError } from '@/lib/api/client';
 import {
@@ -30,9 +28,16 @@ import {
   getConversations,
   searchUsers,
   type ConversationListItem,
-  type ConversationParticipant,
+  type SearchUser,
 } from '@/lib/api/conversations';
+import {
+  acceptFriendRequest,
+  rejectFriendRequest,
+  sendFriendRequest,
+} from '@/lib/api/friends';
 import { useAuth } from '@/lib/auth/AuthContext';
+import { useInboxBadge } from '@/lib/conversations/InboxBadgeContext';
+import { useFriendRequests } from '@/lib/friends/FriendRequestsContext';
 import {
   getCachedConversations,
   saveCachedConversations,
@@ -47,7 +52,6 @@ import {
   useSocket,
 } from '@/lib/socket/SocketContext';
 import { useAppColorScheme } from '@/lib/theme/useAppColorScheme';
-import { type ThemePreference, useAppTheme } from '@/lib/theme/ThemeContext';
 
 function getErrorMessage(error: unknown): string {
   return error instanceof ApiError
@@ -62,22 +66,6 @@ function getSearchErrorMessage(error: unknown): string {
 }
 
 const statusRank = { SENT: 1, DELIVERED: 2, READ: 3 } as const;
-const themeOptions: { label: string; value: ThemePreference }[] = [
-  { label: 'Light', value: 'light' },
-  { label: 'Dark', value: 'dark' },
-  { label: 'System', value: 'system' },
-];
-
-function isInboxActuallyVisible(isFocused: boolean): boolean {
-  if (!isFocused) return false;
-  if (Platform.OS === 'web') {
-    return (
-      typeof document === 'undefined' || document.visibilityState === 'visible'
-    );
-  }
-  return AppState.currentState === 'active';
-}
-
 function mergeRestWithLiveConversations(
   restItems: ConversationListItem[],
   currentItems: ConversationListItem[]
@@ -128,7 +116,9 @@ function mergeRestWithLiveConversations(
 }
 
 export default function HomeScreen() {
-  const { signOut, user } = useAuth();
+  const { user } = useAuth();
+  const { setUnreadCount } = useInboxBadge();
+  const { revision: friendRevision, notifyChanged } = useFriendRequests();
   const {
     acknowledgeDeliveredMessages,
     connectionEpoch,
@@ -146,12 +136,8 @@ export default function HomeScreen() {
   const [isOffline, setIsOffline] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [reloadVersion, setReloadVersion] = useState(0);
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [isThemeDropdownOpen, setIsThemeDropdownOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<ConversationParticipant[]>(
-    []
-  );
+  const [searchResults, setSearchResults] = useState<SearchUser[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [searchErrorMessage, setSearchErrorMessage] = useState<string | null>(
     null
@@ -168,10 +154,9 @@ export default function HomeScreen() {
   const conversationsRef = useRef<ConversationListItem[]>([]);
   const liveRevision = useRef(0);
   const observedConnectionEpoch = useRef(0);
-  const insets = useSafeAreaInsets();
+  const observedFriendRevision = useRef(0);
   const trimmedSearchQuery = searchQuery.trim();
   const scheme = useAppColorScheme();
-  const { preference, setPreference } = useAppTheme();
   const c = colors[scheme];
   const styles = createStyles(c);
 
@@ -185,6 +170,13 @@ export default function HomeScreen() {
     observedConnectionEpoch.current = connectionEpoch;
     setReloadVersion((version) => version + 1);
   }, [connectionEpoch]);
+
+  useEffect(() => {
+    if (observedFriendRevision.current === friendRevision) return;
+    observedFriendRevision.current = friendRevision;
+    setReloadVersion((version) => version + 1);
+    setSearchVersion((version) => version + 1);
+  }, [friendRevision]);
 
   useEffect(() => {
     if (Platform.OS === 'web') {
@@ -214,11 +206,12 @@ export default function HomeScreen() {
     (items: ConversationListItem[], persist: boolean): void => {
       conversationsRef.current = items;
       setConversations(items);
+      setUnreadCount(items.reduce((sum, item) => sum + item.unreadCount, 0));
       if (persist && user?.id) {
         void saveCachedConversations(user.id, items).catch(() => undefined);
       }
     },
-    [user?.id]
+    [setUnreadCount, user?.id]
   );
 
   const updateLiveConversations = useCallback(
@@ -235,11 +228,7 @@ export default function HomeScreen() {
   );
 
   const openNewConversation = useCallback(() => {
-    router.push('/(app)/new-conversation');
-  }, []);
-
-  const openProfile = useCallback(() => {
-    router.push('/(app)/profile' as Href);
+    router.push('/(app)/(tabs)/chats/new-conversation');
   }, []);
 
   const openConversation = useCallback(
@@ -253,7 +242,7 @@ export default function HomeScreen() {
         );
       }
       router.push({
-        pathname: '/(app)/conversation/[conversationId]',
+        pathname: '/(app)/(tabs)/chats/conversation/[conversationId]',
         params: {
           conversationId: conversation.id,
           clearedAt: conversation.clearedAt ?? '',
@@ -315,24 +304,62 @@ export default function HomeScreen() {
   }, [searchVersion, trimmedSearchQuery]);
 
   const chooseUser = useCallback(
-    async (participantId: string) => {
-      setCreatingUserId(participantId);
+    async (action: FriendSearchAction, user: SearchUser) => {
+      setCreatingUserId(user.id);
       setCreationErrorMessage(null);
       try {
-        const conversation = await createDirectConversation(participantId);
-        void syncConversationVisibility(conversation.id).catch(() => undefined);
-        if (!isMounted.current) return;
-        setSearchQuery('');
-        router.push({
-          pathname: '/(app)/conversation/[conversationId]',
-          params: {
-            conversationId: conversation.id,
-            clearedAt: conversation.clearedAt ?? '',
-            participantAvatarUrl: conversation.participant.avatarUrl ?? '',
-            participantId: conversation.participant.id,
-            participantName: conversation.participant.displayName,
-          },
-        });
+        if (action === 'chat') {
+          const conversation = await createDirectConversation(user.id);
+          void syncConversationVisibility(conversation.id).catch(
+            () => undefined
+          );
+          if (!isMounted.current) return;
+          setSearchQuery('');
+          router.push({
+            pathname: '/(app)/(tabs)/chats/conversation/[conversationId]',
+            params: {
+              conversationId: conversation.id,
+              clearedAt: conversation.clearedAt ?? '',
+              participantAvatarUrl: conversation.participant.avatarUrl ?? '',
+              participantId: conversation.participant.id,
+              participantName: conversation.participant.displayName,
+            },
+          });
+        } else if (action === 'request') {
+          const result = await sendFriendRequest(user.id);
+          setSearchResults((current) =>
+            current.map((item) =>
+              item.id === user.id
+                ? {
+                    ...item,
+                    friendStatus:
+                      result.friendship.status === 'ACCEPTED'
+                        ? 'FRIENDS'
+                        : 'PENDING_OUTGOING',
+                  }
+                : item
+            )
+          );
+          void notifyChanged();
+        } else {
+          if (!user.incomingRequestId)
+            throw new Error('Request is no longer available. Search again.');
+          if (action === 'accept')
+            await acceptFriendRequest(user.incomingRequestId);
+          else await rejectFriendRequest(user.incomingRequestId);
+          setSearchResults((current) =>
+            current.map((item) =>
+              item.id === user.id
+                ? {
+                    ...item,
+                    friendStatus: action === 'accept' ? 'FRIENDS' : 'NONE',
+                    incomingRequestId: undefined,
+                  }
+                : item
+            )
+          );
+          void notifyChanged();
+        }
       } catch (error: unknown) {
         if (isMounted.current) {
           setCreationErrorMessage(getSearchErrorMessage(error));
@@ -341,7 +368,7 @@ export default function HomeScreen() {
         if (isMounted.current) setCreatingUserId(null);
       }
     },
-    [syncConversationVisibility]
+    [notifyChanged, syncConversationVisibility]
   );
 
   const retrySearch = useCallback(() => {
@@ -389,10 +416,9 @@ export default function HomeScreen() {
               createdAt: message.createdAt,
               status: isIncoming ? null : 'SENT',
             },
-            unreadCount:
-              isIncoming && isInboxActuallyVisible(isFocused)
-                ? existing.unreadCount + 1
-                : existing.unreadCount,
+            unreadCount: isIncoming
+              ? existing.unreadCount + 1
+              : existing.unreadCount,
           };
           return [
             updated,
@@ -589,40 +615,7 @@ export default function HomeScreen() {
     <SafeAreaView edges={['top']} style={styles.safeArea}>
       <View style={styles.header}>
         <View style={styles.headerTopRow}>
-          <View style={styles.brandRow}>
-            {user ? (
-              <Pressable
-                accessibilityLabel="Open your profile"
-                accessibilityRole="button"
-                onPress={openProfile}
-                style={({ pressed }) => pressed && styles.headerButtonPressed}
-              >
-                <ConversationAvatar
-                  variant="inbox"
-                  avatarUrl={user.avatarUrl}
-                  name={user.displayName}
-                  size={44}
-                  userId={user.id}
-                />
-              </Pressable>
-            ) : null}
-            <Text style={styles.title}>Envelo</Text>
-          </View>
-          <Pressable
-            accessibilityLabel="Open inbox menu"
-            accessibilityRole="button"
-            accessibilityState={{ expanded: isMenuOpen }}
-            onPress={() => {
-              setIsThemeDropdownOpen(false);
-              setIsMenuOpen(true);
-            }}
-            style={({ pressed }) => [
-              styles.iconButton,
-              pressed && styles.headerButtonPressed,
-            ]}
-          >
-            <MaterialIcons color={c.textMuted} name="more-vert" size={26} />
-          </Pressable>
+          <Text style={styles.title}>Envelo</Text>
         </View>
         <View style={styles.searchBox}>
           <MaterialIcons color={c.textMuted} name="search" size={21} />
@@ -651,112 +644,6 @@ export default function HomeScreen() {
           ) : null}
         </View>
       </View>
-
-      <Modal
-        animationType="fade"
-        onRequestClose={() => {
-          setIsThemeDropdownOpen(false);
-          setIsMenuOpen(false);
-        }}
-        statusBarTranslucent
-        transparent
-        visible={isMenuOpen}
-      >
-        <Pressable
-          accessibilityLabel="Close inbox menu"
-          onPress={() => {
-            setIsThemeDropdownOpen(false);
-            setIsMenuOpen(false);
-          }}
-          style={styles.menuBackdrop}
-        >
-          <Pressable
-            onPress={(event) => event.stopPropagation()}
-            style={[styles.menuCard, { top: insets.top + 54 }]}
-          >
-            <Pressable
-              accessibilityLabel={`Theme, ${preference}`}
-              accessibilityRole="button"
-              accessibilityState={{ expanded: isThemeDropdownOpen }}
-              onPress={() => setIsThemeDropdownOpen((open) => !open)}
-              style={({ pressed }) => [
-                styles.menuThemeRow,
-                pressed && styles.menuActionPressed,
-              ]}
-            >
-              <View style={styles.menuItemLabel}>
-                <MaterialIcons color={c.textPrimary} name="palette" size={20} />
-                <Text style={styles.menuItemText}>Theme</Text>
-              </View>
-              <View style={styles.currentTheme}>
-                <Text style={styles.currentThemeText}>
-                  {themeOptions.find((option) => option.value === preference)
-                    ?.label ?? 'System'}
-                </Text>
-                <MaterialIcons
-                  color={c.textMuted}
-                  name={isThemeDropdownOpen ? 'expand-less' : 'expand-more'}
-                  size={21}
-                />
-              </View>
-            </Pressable>
-            {isThemeDropdownOpen ? (
-              <View style={styles.themeOptions}>
-                {themeOptions.map((option) => {
-                  const selected = option.value === preference;
-                  return (
-                    <Pressable
-                      accessibilityRole="menuitem"
-                      key={option.value}
-                      onPress={() => {
-                        void setPreference(option.value);
-                        setIsThemeDropdownOpen(false);
-                      }}
-                      style={({ pressed }) => [
-                        styles.themeOption,
-                        selected && styles.themeOptionSelected,
-                        pressed && styles.menuActionPressed,
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.themeOptionText,
-                          selected && styles.themeOptionTextSelected,
-                        ]}
-                      >
-                        {option.label}
-                      </Text>
-                      {selected ? (
-                        <MaterialIcons
-                          color={c.accentPrimary}
-                          name="check"
-                          size={19}
-                        />
-                      ) : null}
-                    </Pressable>
-                  );
-                })}
-              </View>
-            ) : null}
-            <View style={styles.menuDivider} />
-            <Pressable
-              accessibilityLabel="Log out"
-              accessibilityRole="button"
-              onPress={() => {
-                setIsMenuOpen(false);
-                void signOut();
-              }}
-              style={({ pressed }) => [
-                styles.menuActionRow,
-                pressed && styles.menuActionPressed,
-              ]}
-            >
-              <MaterialIcons color={c.textPrimary} name="logout" size={20} />
-              <Text style={styles.menuItemText}>Log out</Text>
-            </Pressable>
-          </Pressable>
-        </Pressable>
-      </Modal>
 
       {isOffline && !errorMessage ? (
         <View style={styles.offlineNotice}>
@@ -807,10 +694,9 @@ export default function HomeScreen() {
               ) : null
             }
             renderItem={({ item }) => (
-              <UserSearchResult
-                isCreating={creatingUserId === item.id}
-                isDisabled={creatingUserId !== null}
-                onPress={() => void chooseUser(item.id)}
+              <FriendSearchRow
+                busy={creatingUserId === item.id}
+                onAction={(action, user) => void chooseUser(action, user)}
                 user={item}
               />
             )}

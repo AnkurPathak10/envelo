@@ -18,6 +18,7 @@ import 'react-native-reanimated';
 import { colors } from '@/constants/theme';
 import { AuthProvider, useAuth } from '@/lib/auth/AuthContext';
 import { SocketProvider } from '@/lib/socket/SocketContext';
+import { PushNotifications } from '@/lib/push/PushNotifications';
 import { AppThemeProvider } from '@/lib/theme/ThemeContext';
 import { useAppColorScheme } from '@/lib/theme/useAppColorScheme';
 
@@ -87,6 +88,7 @@ function ThemedRootLayout() {
       <AuthProvider>
         <SocketProvider>
           <RootNavigator />
+          <PushNotifications />
           <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
         </SocketProvider>
       </AuthProvider>

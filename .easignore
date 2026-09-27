@@ -1,0 +1,33 @@
+# Keep the repository-wide Git exclusions when EAS creates its upload archive.
+**/node_modules/
+**/.next/
+**/.expo/
+**/dist/
+**/coverage/
+**/src/generated/
+**/*.tsbuildinfo
+*.log
+**/.env
+**/.env.*
+!**/.env.example
+**/*firebase-adminsdk*.json
+**/*service-account-key*.json
+.codex-remote-attachments/
+
+# EAS builds only the mobile app. The API, socket server, and planning files
+# are separate projects and are not needed in the Android build archive.
+/backend/
+/socket-server/
+/files/
+/.claude/
+/.vscode/
+/.git/
+
+# Mobile-only development and web export output.
+/mobile/app-example/
+/mobile/web-build/
+/mobile/android/
+/mobile/ios/
+/mobile/.kotlin/
+/mobile/.neon/
+/mobile/scripts/reset-project.js

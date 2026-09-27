@@ -34,7 +34,11 @@
 
 - **Database (Neon Postgres via Prisma)**: users, conversations,
   conversation participants, messages, message status
-  (sent/delivered/read), refresh tokens (stored hashed).
+  (sent/delivered/read), refresh tokens (stored hashed), and directional
+  `Friendship` rows (`PENDING`, `ACCEPTED`, `REJECTED`), and per-device
+  `PushToken` rows. A rejected
+  request's `respondedAt` starts a five-day resend cooldown only in the
+  original requester-to-addressee direction; acceptance is mutual.
 - **Blob storage (Cloudinary)**: message images/media, profile
   pictures. Only the resulting URL is stored in the database —
   binary content never touches Postgres.
@@ -55,6 +59,23 @@
 - A user can only read or send messages in conversations they are
   a participant of — enforced on both the REST endpoints and the
   socket server before any read/write.
+- A new direct conversation requires an accepted friendship in either
+  direction. Existing conversations remain accessible without a new gate.
+- Friend request changes are persisted by the Next.js backend before it
+  calls the socket server's HMAC-authenticated internal event bridge;
+  the socket server emits `friend:request` to each affected user's room.
+  Both services use the existing shared `JWT_ACCESS_SECRET` for the bridge
+  signature. Set `FRIEND_SOCKET_URL` on the backend deployment to the
+  Render socket server's HTTPS origin for live Profile badge updates.
+- The authenticated mobile app registers an Expo push token with the
+  backend; tokens are unique across accounts and reassigned on sign-in
+  from a reused device. A new pending friend request triggers push from
+  the backend. A newly persisted chat message triggers push from the
+  socket server to each recipient device after its socket acknowledgement.
+  Both services use Expo's push API, and push failure never rolls back
+  the persisted action. A foreground app suppresses the OS banner and
+  uses its live socket updates instead. Notification taps are checked
+  against the current account before navigating.
 
 ## Invariants
 

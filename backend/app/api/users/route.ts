@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 
 import { requireAuth } from "@/lib/auth/requireAuth";
+import { FRIEND_REQUEST_COOLDOWN_MS } from "@/lib/friends";
 import { prisma } from "@/lib/prisma";
 
 const searchSchema = z.object({
@@ -44,5 +45,60 @@ export async function GET(request: NextRequest) {
     take: 20,
   });
 
-  return NextResponse.json({ users });
+  const userIds = users.map((user) => user.id);
+  const friendships = userIds.length
+    ? await prisma.friendship.findMany({
+        where: {
+          OR: [
+            { requesterId: userId, addresseeId: { in: userIds } },
+            { addresseeId: userId, requesterId: { in: userIds } },
+          ],
+        },
+      })
+    : [];
+  const now = Date.now();
+  const usersWithStatus = users.map((user) => {
+    const rows = friendships.filter(
+      (row) => row.requesterId === user.id || row.addresseeId === user.id,
+    );
+    if (rows.some((row) => row.status === "ACCEPTED")) {
+      return { ...user, friendStatus: "FRIENDS" as const };
+    }
+    const incoming = rows.find(
+      (row) => row.status === "PENDING" && row.addresseeId === userId,
+    );
+    if (incoming) {
+      return {
+        ...user,
+        friendStatus: "PENDING_INCOMING" as const,
+        incomingRequestId: incoming.id,
+      };
+    }
+    if (
+      rows.some((row) => row.status === "PENDING" && row.requesterId === userId)
+    ) {
+      return { ...user, friendStatus: "PENDING_OUTGOING" as const };
+    }
+    const rejected = rows.find(
+      (row) =>
+        row.status === "REJECTED" &&
+        row.requesterId === userId &&
+        row.respondedAt,
+    );
+    if (rejected?.respondedAt) {
+      const cooldownEndsAt = new Date(
+        rejected.respondedAt.getTime() + FRIEND_REQUEST_COOLDOWN_MS,
+      );
+      if (cooldownEndsAt.getTime() > now) {
+        return {
+          ...user,
+          friendStatus: "COOLDOWN" as const,
+          cooldownEndsAt: cooldownEndsAt.toISOString(),
+        };
+      }
+    }
+    return { ...user, friendStatus: "NONE" as const };
+  });
+
+  return NextResponse.json({ users: usersWithStatus });
 }

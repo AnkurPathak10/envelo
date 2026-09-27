@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "226962129046",
+    "project_id": "envelo-f2a1c",
+    "storage_bucket": "envelo-f2a1c.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:226962129046:android:ab4d7952b2e4cab01902b7",
+        "android_client_info": {
+          "package_name": "com.millionaireclub.envelo"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBFkoEPsWzyf6SZmr4kQeIgMynyfWXaVLs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -67,18 +67,32 @@ export async function POST(request: NextRequest) {
   let conversation = await findDirectConversation(directKey);
 
   if (!conversation) {
-    try {
-      conversation = await prisma.$transaction((transaction) =>
-        transaction.conversation.create({
-          data: {
-            directKey,
-            participants: {
-              create: [{ userId }, { userId: participantId }],
-            },
-          },
-          select: directConversationSelect,
-        }),
+    const friendship = await prisma.friendship.findFirst({
+      where: {
+        status: "ACCEPTED",
+        OR: [
+          { requesterId: userId, addresseeId: participantId },
+          { requesterId: participantId, addresseeId: userId },
+        ],
+      },
+      select: { id: true },
+    });
+    if (!friendship) {
+      return NextResponse.json(
+        { error: "You must be friends to start a conversation" },
+        { status: 403 },
       );
+    }
+    try {
+      conversation = await prisma.conversation.create({
+        data: {
+          directKey,
+          participants: {
+            create: [{ userId }, { userId: participantId }],
+          },
+        },
+        select: directConversationSelect,
+      });
     } catch (error) {
       if (
         !(error instanceof Prisma.PrismaClientKnownRequestError) ||

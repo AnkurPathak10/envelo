@@ -10,14 +10,23 @@ import {
   View,
 } from 'react-native';
 
-import { UserSearchResult } from '@/components/conversations/user-search-result';
+import {
+  FriendSearchRow,
+  type FriendSearchAction,
+} from '@/components/friends/friend-search-row';
 import { colors, radius } from '@/constants/theme';
 import { ApiError } from '@/lib/api/client';
 import {
   createDirectConversation,
   searchUsers,
-  type ConversationParticipant,
+  type SearchUser,
 } from '@/lib/api/conversations';
+import {
+  acceptFriendRequest,
+  rejectFriendRequest,
+  sendFriendRequest,
+} from '@/lib/api/friends';
+import { useFriendRequests } from '@/lib/friends/FriendRequestsContext';
 import { useAppColorScheme } from '@/lib/theme/useAppColorScheme';
 
 function getErrorMessage(error: unknown): string {
@@ -28,7 +37,7 @@ function getErrorMessage(error: unknown): string {
 
 export default function NewConversationScreen() {
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState<ConversationParticipant[]>([]);
+  const [results, setResults] = useState<SearchUser[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [creatingUserId, setCreatingUserId] = useState<string | null>(null);
   const [searchErrorMessage, setSearchErrorMessage] = useState<string | null>(
@@ -40,8 +49,10 @@ export default function NewConversationScreen() {
   const [searchVersion, setSearchVersion] = useState(0);
   const requestSequence = useRef(0);
   const isMounted = useRef(true);
+  const observedFriendRevision = useRef(0);
   const trimmedQuery = query.trim();
   const scheme = useAppColorScheme();
+  const { revision: friendRevision, notifyChanged } = useFriendRequests();
   const c = colors[scheme];
   const styles = createStyles(c);
 
@@ -50,6 +61,12 @@ export default function NewConversationScreen() {
       isMounted.current = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (observedFriendRevision.current === friendRevision) return;
+    observedFriendRevision.current = friendRevision;
+    setSearchVersion((version) => version + 1);
+  }, [friendRevision]);
 
   useEffect(() => {
     const sequence = ++requestSequence.current;
@@ -86,18 +103,66 @@ export default function NewConversationScreen() {
     };
   }, [searchVersion, trimmedQuery]);
 
-  const chooseUser = useCallback(async (userId: string) => {
-    setCreatingUserId(userId);
-    setCreationErrorMessage(null);
-    try {
-      await createDirectConversation(userId);
-      router.back();
-    } catch (error) {
-      if (isMounted.current) setCreationErrorMessage(getErrorMessage(error));
-    } finally {
-      if (isMounted.current) setCreatingUserId(null);
-    }
-  }, []);
+  const chooseUser = useCallback(
+    async (action: FriendSearchAction, user: SearchUser) => {
+      setCreatingUserId(user.id);
+      setCreationErrorMessage(null);
+      try {
+        if (action === 'chat') {
+          const conversation = await createDirectConversation(user.id);
+          router.replace({
+            pathname: '/(app)/(tabs)/chats/conversation/[conversationId]',
+            params: {
+              conversationId: conversation.id,
+              clearedAt: conversation.clearedAt ?? '',
+              participantAvatarUrl: user.avatarUrl ?? '',
+              participantId: user.id,
+              participantName: user.displayName,
+            },
+          });
+        } else if (action === 'request') {
+          const response = await sendFriendRequest(user.id);
+          setResults((current) =>
+            current.map((item) =>
+              item.id === user.id
+                ? {
+                    ...item,
+                    friendStatus:
+                      response.friendship.status === 'ACCEPTED'
+                        ? 'FRIENDS'
+                        : 'PENDING_OUTGOING',
+                  }
+                : item
+            )
+          );
+          void notifyChanged();
+        } else {
+          if (!user.incomingRequestId)
+            throw new Error('Request is no longer available. Search again.');
+          if (action === 'accept')
+            await acceptFriendRequest(user.incomingRequestId);
+          else await rejectFriendRequest(user.incomingRequestId);
+          setResults((current) =>
+            current.map((item) =>
+              item.id === user.id
+                ? {
+                    ...item,
+                    friendStatus: action === 'accept' ? 'FRIENDS' : 'NONE',
+                    incomingRequestId: undefined,
+                  }
+                : item
+            )
+          );
+          void notifyChanged();
+        }
+      } catch (error) {
+        if (isMounted.current) setCreationErrorMessage(getErrorMessage(error));
+      } finally {
+        if (isMounted.current) setCreatingUserId(null);
+      }
+    },
+    [notifyChanged]
+  );
 
   const retrySearch = useCallback(() => {
     setSearchVersion((version) => version + 1);
@@ -163,10 +228,9 @@ export default function NewConversationScreen() {
           ) : null
         }
         renderItem={({ item }) => (
-          <UserSearchResult
-            isCreating={creatingUserId === item.id}
-            isDisabled={creatingUserId !== null}
-            onPress={() => void chooseUser(item.id)}
+          <FriendSearchRow
+            busy={creatingUserId === item.id}
+            onAction={(action, user) => void chooseUser(action, user)}
             user={item}
           />
         )}

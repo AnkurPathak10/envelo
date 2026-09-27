@@ -1,2 +1,19 @@
-node_modules
-.codex-remote-attachments
+# Dependencies and generated output
+**/node_modules/
+**/.next/
+**/.expo/
+**/dist/
+**/coverage/
+**/src/generated/
+**/*.tsbuildinfo
+*.log
+
+# Local configuration and credentials
+**/.env
+**/.env.*
+!**/.env.example
+**/*firebase-adminsdk*.json
+**/*service-account-key*.json
+
+# Local attachments
+.codex-remote-attachments/

@@ -27,6 +27,7 @@ import {
   getCachedUser,
   saveCachedUser,
 } from '@/lib/auth/userStorage';
+import { unregisterCurrentPushToken } from '@/lib/api/push';
 
 interface AuthContextValue {
   user: ApiUser | null;
@@ -129,6 +130,11 @@ export function AuthProvider({ children }: PropsWithChildren) {
     setUser(null);
     await serializeAuthMutation(async () => {
       try {
+        try {
+          await unregisterCurrentPushToken();
+        } catch {
+          // An offline sign-out still clears the local session.
+        }
         await logout();
       } catch {
         /* Local logout still succeeds if the server is unavailable. */

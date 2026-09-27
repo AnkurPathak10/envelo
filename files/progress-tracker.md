@@ -4,7 +4,7 @@ Update this file after every meaningful implementation change.
 
 ## Current Phase
 
-- Features 03, 04, 06, 09, 11, 13, 14, 15, 16, 17, 20, and 21 implemented - pending remaining manual real-device verification; Features 05, 07, 08, 10, and 12 complete
+- Features 03, 04, 06, 09, 11, 13, 14, 15, 16, 17, 20, 21, bottom-tab navigation (`22-bottom-tab-navigation.md`), the friend system (`23-friend-system-backend.md` / `24-friend-system-mobile.md`), and push notifications (`25-friend-request-push-notifications.md`) implemented - pending remaining manual real-device verification; Features 05, 07, 08, 10, and 12 complete
 
 ## Current Goal
 
@@ -14,9 +14,21 @@ Update this file after every meaningful implementation change.
 - Complete Feature 17's ten-case two-device verification checklist, including ImageKit dashboard compression/file-type checks and the offline text-message regression test
 - Complete one real signup on Expo Go and web with the configured Brevo sender, confirming delivery, OTP verification, resend timing, native SecureStore, and the browser refresh cookie.
 - Complete Feature 21's Android/iOS two-account acceptance: microphone permission, hold/release send, slide-left delete, playback speeds, offline restart/reconnect, and light/dark mic contrast.
+- Complete two-device friend-request acceptance in light and dark modes. Set `FRIEND_SOCKET_URL` on the deployed Vercel backend to the Render socket server HTTPS origin so live Profile badges work outside localhost.
+- Configure FCM v1 credentials for the EAS Android build and test Feature 25 on two installed development/production builds. Expo Go cannot receive remote push on SDK 54. Validate closed-app friend/message delivery, tap routing, foreground suppression, permission denial, and duplicate-send behavior.
 
 ## UI Upgrades
 
+- Feature 25: Friend Request and Chat Message Push Notifications — implemented; native credential setup and real-device acceptance pending.
+  - Added an authenticated, token-validated `POST /api/push/register` that reassigns reused device tokens to the current account, plus same-account `DELETE` for best-effort sign-out cleanup. The additive `PushToken` migration was applied to the configured Neon testing database; backend and socket Prisma clients were regenerated.
+  - A newly pending friend request sends a named Expo push from the backend after the friendship commit; a newly persisted socket message sends one preview notification per recipient device after socket acknowledgement. Duplicate client-message retries and the auto-accept friend path do not send duplicate request pushes. Push failures cannot fail the original friend/message action.
+  - The mobile app requests permission after authentication, registers/retries its project-scoped Expo token, creates Android message/friend channels, hides foreground OS banners in favor of live socket UI, and routes notification taps to Pending Requests or the conversation only for the signed-in recipient. Web and Expo Go skip native token registration.
+  - Backend and socket builds, all three TypeScript checks, Expo lint, web export, Android bundle export, and Prisma migration status pass. Real push delivery remains unverified because SDK 54 requires an Android development/production build with FCM v1 credentials and `google-services.json` (not Expo Go); iOS also requires Apple credentials.
+
+- Friend system (`23-friend-system-backend.md` and `24-friend-system-mobile.md`) — backend and mobile implemented; two-device UI acceptance pending. Added directional Friendship schema and five-day rejected-request cooldown, request/accept/reject/list/search APIs, friend-only creation of new direct conversations, and a signed backend-to-socket `friend:request` notification bridge. Search now shows Chat/Add/Pending/Accept/Reject/Cooldown actions; Profile has Friends and Pending Requests screens and a live request badge. Existing chats remain accessible.
+  - The approved migration `20260927120000_add_friendships` was applied to the configured Neon testing database. One-time backfill created 3 accepted friendships and deleted 11 empty testing conversations. One message-bearing legacy conversation had an invalid participant count and was left untouched. The backfill script is idempotent and is not run on deploy.
+  - Disposable five-account REST verification passed: access control, search states, request/accept/reject, cooldown, opposite-direction requests, and direct-chat gate/reuse. The test users and their conversation were removed afterward. The local authenticated socket-room notification test passed; backend production build, socket build, mobile/backend/socket TypeScript, mobile lint, and Expo web export passed.
+- Bottom-tab navigation (`22-bottom-tab-navigation.md`) — implemented; real-device acceptance pending. Chats, Settings, and Profile now have nested tab stacks. The profile avatar is in its tab icon, New Conversation/theme/logout moved to Settings, and Chats reuses the unread-count badge with the live inbox total. Chat and new-conversation screens hide the tab dock while pushed. No backend changes.
 - Feature 21: Hold-to-Record Voice Messages — implemented; real-device/two-account acceptance pending.
   - Installed Expo SDK 54's official `expo-audio`, registered Envelo's microphone permission copy, and added hold-to-record with a live timer, five-minute cap, native permission handling, and audio-session cleanup on every stop/error/unmount path.
   - Replaced the inactive empty-composer microphone with the working gesture: release queues/sends; sliding left arms a visible delete state and release discards without upload. Accidental recordings below 300 ms are rejected. The light mic glyph is white and the dark mic glyph remains black.
@@ -395,12 +407,15 @@ Update this file after every meaningful implementation change.
 - Feature 16 manual real-device/browser verification: run all ten specification checks for persisted Light/Dark/System behavior, cross-screen theme consistency, two-account live row movement and unread clearing, empty previews, deterministic avatars, timestamp cases, and inbox appearance. The implementation and static checks are complete; this physical-device/browser validation remains pending.
 - Feature 17 manual two-device verification: confirm removable pre-send image preview and optional caption; test offline image queueing, local thumbnail and `PENDING` clock, force-close/reopen persistence, reconnect upload/send, local-file cleanup, same-conversation text/media order after an upload failure, and independent conversations. Re-run avatar propagation, full-screen viewer, media-only inbox previews, foreign-URL rejection, actual ImageKit uploads/compression, and light/dark/error states. Confirm ImageKit's image-only restriction and optional size limit. Physical-device and external-service verification remain pending.
 - Feature 21 manual Android/iOS and two-account verification: run all twelve checks in `21-voice-messages.md`, especially the first permission prompt, hold/release timing, slide-left delete threshold, five-minute stop, recording interruption, avatar/speed playback UI, offline force-close/reconnect, and delivery to a second account/device.
-- Optional Neon data hygiene: delete the legacy conversations with fewer than two participants through the Neon SQL console once a browser session or working direct maintenance connection is available. The app no longer depends on this cleanup because the inbox route excludes them.
+- Bottom-tab manual Android/iOS verification: confirm all three tabs, active tint, summed unread badge/live updates, Chats -> conversation -> Back, Settings -> New Conversation, theme and logout, and Profile avatar view/change. The static navigation/type/lint checks are complete; this real-device checklist remains pending.
+- Friend system manual two-device verification: run `24-friend-system-mobile.md`'s seven checks, especially live Profile badge, search quick actions, friend list chat opening, cooldown directionality, and light/dark layouts. Configure production `FRIEND_SOCKET_URL` before testing across Vercel/Render. One malformed legacy message-bearing conversation remains in the test database; it is hidden by the inbox's participant filter and was not deleted by the backfill.
+- Feature 25 manual two-device verification: install a push-enabled Android development/production build with FCM v1 credentials, register both devices, then run the seven checks in `25-friend-request-push-notifications.md`. Confirm both closed-app friend and chat notifications, correct tap destination, no foreground banner, graceful permission denial, and no duplicate push on a retried client message. Do not mark complete based on Expo Go: SDK 54 remote push is unavailable there.
 
 ## Next Up
 
 - Finish Feature 18's real-device visual acceptance for the light chat and inbox palette.
-- After Feature 21 real-device acceptance, define Feature 22 for audio/video calls, including signaling, foreground/background lifecycle, ringing, permissions, NAT traversal/TURN cost, and call-state UI before choosing an implementation provider.
+- After Feature 25 real-device acceptance: choose the next feature (for example, Club design, calls planning, or the deferred UI polish pass).
+- After Feature 21 real-device acceptance, separately define audio/video calls, including signaling, foreground/background lifecycle, ringing, permissions, NAT traversal/TURN cost, and call-state UI before choosing an implementation provider.
 
 ## Open Questions
 

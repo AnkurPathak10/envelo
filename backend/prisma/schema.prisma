@@ -23,10 +23,44 @@ model User {
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 
-  refreshTokens   RefreshToken[]
-  conversations   ConversationParticipant[]
-  messagesSent    Message[]                 @relation("MessagesSent")
-  messageStatuses MessageStatus[]
+  refreshTokens          RefreshToken[]
+  conversations          ConversationParticipant[]
+  messagesSent           Message[]                 @relation("MessagesSent")
+  messageStatuses        MessageStatus[]
+  friendRequestsSent     Friendship[]              @relation("FriendRequestsSent")
+  friendRequestsReceived Friendship[]              @relation("FriendRequestsReceived")
+  pushTokens             PushToken[]
+}
+
+model PushToken {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+enum FriendshipStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+}
+
+model Friendship {
+  id          String           @id @default(cuid())
+  requesterId String
+  requester   User             @relation("FriendRequestsSent", fields: [requesterId], references: [id], onDelete: Cascade)
+  addresseeId String
+  addressee   User             @relation("FriendRequestsReceived", fields: [addresseeId], references: [id], onDelete: Cascade)
+  status      FriendshipStatus
+  respondedAt DateTime?
+  createdAt   DateTime         @default(now())
+
+  @@unique([requesterId, addresseeId])
+  @@index([addresseeId, status, createdAt])
+  @@index([requesterId, status])
 }
 
 model PendingSignup {

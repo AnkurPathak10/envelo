@@ -1,0 +1,33 @@
+# EAS prioritizes this file over mobile/.gitignore, so preserve its rules.
+node_modules/
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+.kotlin/
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+.metro-health-check*
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+.DS_Store
+*.pem
+.env*.local
+.env
+*firebase-adminsdk*.json
+*service-account-key*.json
+*.tsbuildinfo
+app-example/
+/ios/
+/android/
+.neon
+
+# Files used locally but not by an EAS native build.
+/scripts/reset-project.js
+/coverage/
+*.log
