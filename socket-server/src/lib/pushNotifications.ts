@@ -23,7 +23,7 @@ export async function sendMessagePush(
     const [sender, registrations] = await Promise.all([
       prisma.user.findUnique({
         where: { id: senderId },
-        select: { displayName: true },
+        select: { displayName: true, avatarUrl: true },
       }),
       prisma.pushToken.findMany({
         where: { userId: { in: recipientIds } },
@@ -38,8 +38,15 @@ export async function sendMessagePush(
         to: token,
         title: sender.displayName,
         body: preview(message),
+        // richContent.image becomes an expanded photo attachment on Android,
+        // not the small circular sender avatar used by conversation notifications.
         data: {
+          notificationStyle: "conversation-v1",
           type: "chat_message",
+          senderId,
+          senderName: sender.displayName,
+          senderAvatarUrl: sender.avatarUrl,
+          sentAt: Date.parse(message.createdAt),
           recipientUserId: userId,
           conversationId: message.conversationId,
           messageId: message.id,

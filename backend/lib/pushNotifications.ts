@@ -14,7 +14,7 @@ export async function sendFriendRequestPush(
     const [requester, registrations] = await Promise.all([
       prisma.user.findUnique({
         where: { id: requesterId },
-        select: { displayName: true },
+        select: { displayName: true, avatarUrl: true },
       }),
       prisma.pushToken.findMany({
         where: { userId: addresseeId },
@@ -27,10 +27,17 @@ export async function sendFriendRequestPush(
       .filter(({ token }) => Expo.isExpoPushToken(token))
       .map(({ token }) => ({
         to: token,
-        title: "New friend request",
-        body: `${requester.displayName} sent you a friend request`,
+        title: requester.displayName,
+        body: "Sent you a friend request",
+        // richContent.image becomes an expanded photo attachment on Android,
+        // not the small circular sender avatar used by conversation notifications.
         data: {
+          notificationStyle: "conversation-v1",
           type: "friend_request",
+          senderId: requesterId,
+          senderName: requester.displayName,
+          senderAvatarUrl: requester.avatarUrl,
+          sentAt: Date.now(),
           recipientUserId: addresseeId,
           requestId,
         },

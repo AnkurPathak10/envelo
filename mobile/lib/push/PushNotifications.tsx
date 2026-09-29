@@ -125,11 +125,13 @@ export function PushNotifications() {
     const handle = (response: Notifications.NotificationResponse) => {
       if (response.actionIdentifier !== Notifications.DEFAULT_ACTION_IDENTIFIER)
         return;
-      const id = response.notification.request.identifier;
+      const data = response.notification.request.content.data;
+      // Android reuses a notification ID for the whole chat. A later message
+      // in that chat must still be tappable after a previous notification tap.
+      const id = `${response.notification.request.identifier}:${data?.messageId ?? data?.requestId ?? response.notification.date}`;
       if (handledResponseId.current === id) return;
       handledResponseId.current = id;
 
-      const data = response.notification.request.content.data;
       if (data?.recipientUserId === userId) {
         if (data.type === 'friend_request') {
           router.push('/(app)/(tabs)/profile/requests');

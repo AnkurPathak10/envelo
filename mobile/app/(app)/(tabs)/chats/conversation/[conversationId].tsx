@@ -1,6 +1,11 @@
-import { Stack, router, useLocalSearchParams } from 'expo-router';
+import {
+  Stack,
+  router,
+  useFocusEffect,
+  useLocalSearchParams,
+} from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, StyleSheet, View } from 'react-native';
+import { Alert, AppState, StyleSheet, View } from 'react-native';
 
 import { ChatHeader } from '@/components/chat/chat-header';
 import { ChatScreen } from '@/components/chat/chat-screen';
@@ -11,6 +16,7 @@ import {
 import { useAuth } from '@/lib/auth/AuthContext';
 import { removeCachedMessageHistory } from '@/lib/cache/messageCache';
 import { useSocket } from '@/lib/socket/SocketContext';
+import { dismissChatNotifications } from '@/lib/push/notificationTray';
 
 function firstParam(value: string | string[] | undefined): string {
   return typeof value === 'string' ? value : (value?.[0] ?? '');
@@ -32,6 +38,23 @@ export default function ConversationScreen() {
     participantName?: string | string[];
   }>();
   const conversationId = firstParam(params.conversationId);
+  useFocusEffect(
+    useCallback(() => {
+      if (!user?.id || !conversationId) return;
+      const dismiss = () => {
+        void dismissChatNotifications(user.id, conversationId).catch(
+          (error) => {
+            console.warn('Unable to clear the chat notification', error);
+          }
+        );
+      };
+      dismiss();
+      const subscription = AppState.addEventListener('change', (state) => {
+        if (state === 'active') dismiss();
+      });
+      return () => subscription.remove();
+    }, [conversationId, user?.id])
+  );
   const initialClearedAt = firstParam(params.clearedAt).trim() || null;
   const participantAvatarUrl = firstParam(params.participantAvatarUrl).trim();
   const participantId = firstParam(params.participantId).trim();
