@@ -2,11 +2,15 @@ package com.envelo.notifications
 
 import android.app.NotificationManager
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.Person
+import androidx.core.content.pm.ShortcutInfoCompat
+import androidx.core.content.pm.ShortcutManagerCompat
 import androidx.core.graphics.drawable.IconCompat
 import expo.modules.notifications.notifications.model.Notification
 import expo.modules.notifications.notifications.model.NotificationBehaviorRecord
@@ -85,14 +89,23 @@ private class ConversationPresentationDelegate(context: Context) : ExpoPresentat
     val sender = Person.Builder().setName(name).setKey(data.optString("senderId"))
       .setIcon(IconCompat.createWithBitmap(avatar)).build()
     val me = Person.Builder().setName("You").setKey(data.optString("recipientUserId")).build()
-    val style = NotificationCompat.MessagingStyle(me).setGroupConversation(false)
+    // Android R+ takes the heading from the linked shortcut. The title also
+    // covers older/OEM layouts, where MessagingStyle ignores setContentTitle.
+    val style = NotificationCompat.MessagingStyle(me)
+      .setConversationTitle(name)
+      .setGroupConversation(false)
     retained.forEach { entry ->
       style.addMessage(entry.text, entry.timestamp, sender)
     }
+    val shortcut = runCatching {
+      publishChatShortcut(data, name, avatar, sender)
+    }.onFailure { error ->
+      Log.w("EnveloNotifications", "Could not publish conversation shortcut", error)
+    }.getOrNull()
     // Recover Expo's base card to retain its PendingIntent, marshalled response,
     // channels, sounds and permissions. Only its visual style is replaced.
     val base = super.createNotification(notification, behavior)
-    val result = NotificationCompat.Builder(context, base)
+    val builder = NotificationCompat.Builder(context, base)
       .setStyle(style)
       .setLargeIcon(avatar)
       .setCategory(if (data.optString("type") == "chat_message") NotificationCompat.CATEGORY_MESSAGE else NotificationCompat.CATEGORY_SOCIAL)
@@ -106,11 +119,38 @@ private class ConversationPresentationDelegate(context: Context) : ExpoPresentat
           JSONObject().put("id", it.id).put("text", it.text).put("time", it.timestamp)
         }).toString())
       })
-      .build()
+    if (shortcut != null) builder.setShortcutInfo(shortcut)
+    val result = builder.build()
     // The user may have opened the app while the avatar was downloading.
     // Foreground alerts are suppressed by the app's existing notification policy.
     if (!ExpoHandlingDelegate(context).isAppInForeground() || behavior != null) {
       NotificationManagerCompat.from(context).notify(tag, 0, result)
     }
+  }
+
+  private fun publishChatShortcut(
+    data: JSONObject,
+    name: String,
+    avatar: android.graphics.Bitmap,
+    sender: Person
+  ): ShortcutInfoCompat? {
+    if (data.optString("type") != "chat_message") return null
+    val conversationId = data.optString("conversationId").takeIf { it.isNotBlank() } ?: return null
+    val recipientId = data.optString("recipientUserId").takeIf { it.isNotBlank() } ?: return null
+    val intent = context.packageManager.getLaunchIntentForPackage(context.packageName) ?: return null
+    intent.action = Intent.ACTION_VIEW
+    intent.data = Uri.Builder().scheme("envelo").authority("chats")
+      .appendPath("conversation").appendPath(conversationId).build()
+    intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+
+    val shortcut = ShortcutInfoCompat.Builder(context, "envelo:$recipientId:chat:$conversationId")
+      .setShortLabel(name)
+      .setLongLabel(name)
+      .setIcon(IconCompat.createWithAdaptiveBitmap(avatar))
+      .setIntent(intent)
+      .setPerson(sender)
+      .setIsConversation()
+      .build()
+    return shortcut.takeIf { ShortcutManagerCompat.pushDynamicShortcut(context, it) }
   }
 }
