@@ -31,6 +31,8 @@ export async function sendMessagePush(
       }),
     ]);
     if (!sender || registrations.length === 0) return;
+    const parsedSentAt = Date.parse(message.createdAt);
+    const sentAt = Number.isFinite(parsedSentAt) ? parsedSentAt : Date.now();
 
     const messages: ExpoPushMessage[] = registrations
       .filter(({ token }) => Expo.isExpoPushToken(token))
@@ -46,7 +48,7 @@ export async function sendMessagePush(
           senderId,
           senderName: sender.displayName,
           senderAvatarUrl: sender.avatarUrl,
-          sentAt: Date.parse(message.createdAt),
+          sentAt,
           recipientUserId: userId,
           conversationId: message.conversationId,
           messageId: message.id,

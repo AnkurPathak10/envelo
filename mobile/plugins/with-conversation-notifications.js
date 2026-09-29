@@ -17,7 +17,8 @@ const SOURCE_FILES = [
   'NotificationAvatar.kt',
   'ConversationHistory.kt',
 ];
-const EXPO_NOTIFICATIONS_VERSION = require('expo-notifications/package.json').version;
+const EXPO_NOTIFICATIONS_VERSION =
+  require('expo-notifications/package.json').version;
 
 function configureManifest(manifest) {
   manifest.manifest.$['xmlns:tools'] = 'http://schemas.android.com/tools';
@@ -75,13 +76,23 @@ function configureManifest(manifest) {
 }
 
 const GRADLE_MARKER = '// Envelo conversation notifications';
+const NOTIFICATIONS_MAVEN_DEPENDENCY =
+  /implementation 'host\.exp\.exponent:expo\.modules\.notifications:[^']+'/;
 function configureGradle(contents) {
-  const notificationsDependency =
-    `implementation 'host.exp.exponent:expo.modules.notifications:${EXPO_NOTIFICATIONS_VERSION}'`;
-  if (contents.includes(GRADLE_MARKER)) {
-    return contents.replace(
-      "implementation project(':expo-notifications')",
-      notificationsDependency
+  const notificationsDependency = `implementation 'host.exp.exponent:expo.modules.notifications:${EXPO_NOTIFICATIONS_VERSION}'`;
+  const markerIndex = contents.indexOf(GRADLE_MARKER);
+  if (markerIndex !== -1) {
+    // Keep upgrades idempotent even when prebuild reuses an older android/ tree.
+    // Only update our injected block, not another Gradle dependency above it.
+    return (
+      contents.slice(0, markerIndex) +
+      contents
+        .slice(markerIndex)
+        .replace(
+          "implementation project(':expo-notifications')",
+          notificationsDependency
+        )
+        .replace(NOTIFICATIONS_MAVEN_DEPENDENCY, notificationsDependency)
     );
   }
   return (
