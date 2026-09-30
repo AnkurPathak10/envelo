@@ -102,7 +102,7 @@ private class ConversationPresentationDelegate(context: Context) : ExpoPresentat
       .setConversationTitle(name)
       .setGroupConversation(groupName != null)
     retained.forEach { entry ->
-      val author = if (entry.senderName == senderName || groupName == null) sender else
+      val author = if (groupName == null || entry.senderId == data.optString("senderId")) sender else
         Person.Builder().setName(entry.senderName).setKey(entry.senderId)
           .setIcon(IconCompat.createWithBitmap(avatar)).build()
       style.addMessage(entry.text, entry.timestamp, author)

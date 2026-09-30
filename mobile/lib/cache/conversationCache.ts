@@ -2,15 +2,23 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import type {
   ConversationListItem,
+  ConversationParticipant,
   MessageStatus,
 } from '@/lib/api/conversations';
 
 const CONVERSATION_CACHE_PREFIX = 'envelo_conversation_list_v1:';
 let cacheMutation = Promise.resolve();
 
+type LegacyDirectConversation = Omit<
+  Extract<ConversationListItem, { type: 'DIRECT' }>,
+  'type'
+> & { type?: undefined };
+
+type StoredConversation = ConversationListItem | LegacyDirectConversation;
+
 interface ConversationListCacheEntry {
   userId: string;
-  conversations: ConversationListItem[];
+  conversations: StoredConversation[];
   cachedAt: string;
 }
 
@@ -26,15 +34,17 @@ function isMessageStatus(value: unknown): value is MessageStatus {
   return value === 'SENT' || value === 'DELIVERED' || value === 'READ';
 }
 
-function isConversationListItem(value: unknown): value is ConversationListItem {
+function isConversationListItem(value: unknown): value is StoredConversation {
   if (!value || typeof value !== 'object') return false;
-  const candidate = value as Partial<ConversationListItem>;
+  const candidate = value as Partial<ConversationListItem> & {
+    participant?: Partial<ConversationParticipant>;
+  };
   const lastMessage = candidate.lastMessage;
   const validIdentity =
     candidate.type === 'GROUP'
       ? typeof candidate.name === 'string' &&
         (candidate.photoUrl === null || typeof candidate.photoUrl === 'string')
-      : candidate.type === 'DIRECT' &&
+      : (candidate.type === 'DIRECT' || candidate.type === undefined) &&
         !!candidate.participant &&
         typeof candidate.participant.id === 'string' &&
         typeof candidate.participant.displayName === 'string' &&
@@ -99,7 +109,11 @@ export async function getCachedConversations(
 
   try {
     const parsed: unknown = JSON.parse(stored);
-    if (isCacheEntry(parsed, userId)) return parsed.conversations;
+    if (isCacheEntry(parsed, userId)) {
+      return parsed.conversations.map((item) =>
+        item.type === undefined ? { ...item, type: 'DIRECT' as const } : item
+      );
+    }
   } catch {
     // Invalid cache entries are discarded below.
   }

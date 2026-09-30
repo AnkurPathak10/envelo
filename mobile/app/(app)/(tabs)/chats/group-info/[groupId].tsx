@@ -1,7 +1,7 @@
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useFocusEffect } from '@react-navigation/native';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -51,6 +51,7 @@ export default function GroupInfoScreen() {
   const [busy, setBusy] = useState(false);
   const [tab, setTab] = useState<'members' | 'media'>('members');
   const [editing, setEditing] = useState(false);
+  const editingRef = useRef(false);
   const [description, setDescription] = useState('');
   const [media, setMedia] = useState<{ id: string; url: string }[]>([]);
   const [mediaLoading, setMediaLoading] = useState(false);
@@ -60,7 +61,15 @@ export default function GroupInfoScreen() {
     try {
       const detail = await getGroupConversation(groupId);
       setGroup(detail);
-      if (!editing) setDescription(detail.description ?? '');
+      if (
+        !detail.members.some(
+          (member) => member.id === user?.id && member.role === 'ADMIN'
+        )
+      ) {
+        editingRef.current = false;
+        setEditing(false);
+      }
+      if (!editingRef.current) setDescription(detail.description ?? '');
       setError(null);
     } catch (caught) {
       setError(message(caught));
@@ -71,7 +80,7 @@ export default function GroupInfoScreen() {
         setGroup(null);
       }
     }
-  }, [editing, groupId]);
+  }, [groupId, user?.id]);
 
   useFocusEffect(
     useCallback(() => {
@@ -276,7 +285,10 @@ export default function GroupInfoScreen() {
               {isAdmin && !editing ? (
                 <Pressable
                   accessibilityLabel="Edit group description"
-                  onPress={() => setEditing(true)}
+                  onPress={() => {
+                    editingRef.current = true;
+                    setEditing(true);
+                  }}
                 >
                   <MaterialIcons
                     name="edit"
@@ -302,6 +314,7 @@ export default function GroupInfoScreen() {
                   <Pressable
                     onPress={() => {
                       setDescription(group.description ?? '');
+                      editingRef.current = false;
                       setEditing(false);
                     }}
                   >
@@ -314,6 +327,7 @@ export default function GroupInfoScreen() {
                         const updated = await updateGroupConversation(groupId, {
                           description: description.trim() || null,
                         });
+                        editingRef.current = false;
                         setEditing(false);
                         return updated;
                       })

@@ -41,7 +41,9 @@ export default function NewGroupScreen() {
   const [adding, setAdding] = useState(false);
 
   useEffect(() => {
-    if (groupId) reset();
+    if (!groupId) return;
+    reset();
+    return reset;
   }, [groupId, reset]);
 
   useFocusEffect(
