@@ -24,10 +24,28 @@ export function ConversationRow({
   const styles = createStyles(c);
   const lastMessage = conversation.lastMessage;
   const isOutgoing = lastMessage?.senderId === currentUserId;
+  const name =
+    conversation.type === 'GROUP'
+      ? conversation.name
+      : conversation.participant.displayName;
+  const avatarUrl =
+    conversation.type === 'GROUP'
+      ? conversation.photoUrl
+      : conversation.participant.avatarUrl;
+  const preview = lastMessage
+    ? conversation.type === 'GROUP'
+      ? (lastMessage.preview ?? lastMessage.content ?? 'Message')
+      : (lastMessage.content ??
+        (lastMessage.audioDurationMs
+          ? '🎤 Voice message'
+          : lastMessage.mediaUrl
+            ? '📷 Photo'
+            : 'Message'))
+    : 'No messages yet';
 
   return (
     <Pressable
-      accessibilityLabel={`Open conversation with ${conversation.participant.displayName}`}
+      accessibilityLabel={`Open ${conversation.type === 'GROUP' ? 'group' : 'conversation with'} ${name}`}
       accessibilityRole="button"
       onPress={onPress}
       style={({ pressed }) => [
@@ -37,13 +55,17 @@ export function ConversationRow({
     >
       <ConversationAvatar
         variant="inbox"
-        avatarUrl={conversation.participant.avatarUrl}
-        name={conversation.participant.displayName}
-        userId={conversation.participant.id}
+        avatarUrl={avatarUrl}
+        name={name}
+        userId={
+          conversation.type === 'GROUP'
+            ? conversation.id
+            : conversation.participant.id
+        }
       />
       <View style={styles.content}>
         <Text numberOfLines={1} style={styles.name}>
-          {conversation.participant.displayName}
+          {name}
         </Text>
         <View style={styles.previewRow}>
           {isOutgoing && lastMessage ? (
@@ -51,19 +73,14 @@ export function ConversationRow({
               <MessageStatusIcon
                 color={c.textMuted}
                 size={15}
-                status={lastMessage.status}
+                status={
+                  conversation.type === 'GROUP' ? 'SENT' : lastMessage.status
+                }
               />
             </View>
           ) : null}
           <Text numberOfLines={1} style={styles.preview}>
-            {lastMessage
-              ? (lastMessage.content ??
-                (lastMessage.audioDurationMs
-                  ? '🎤 Voice message'
-                  : lastMessage.mediaUrl
-                    ? '📷 Photo'
-                    : 'Message'))
-              : 'No messages yet'}
+            {preview}
           </Text>
         </View>
       </View>

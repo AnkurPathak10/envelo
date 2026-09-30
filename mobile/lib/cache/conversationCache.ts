@@ -29,23 +29,26 @@ function isMessageStatus(value: unknown): value is MessageStatus {
 function isConversationListItem(value: unknown): value is ConversationListItem {
   if (!value || typeof value !== 'object') return false;
   const candidate = value as Partial<ConversationListItem>;
-  const participant = candidate.participant;
   const lastMessage = candidate.lastMessage;
+  const validIdentity =
+    candidate.type === 'GROUP'
+      ? typeof candidate.name === 'string' &&
+        (candidate.photoUrl === null || typeof candidate.photoUrl === 'string')
+      : candidate.type === 'DIRECT' &&
+        !!candidate.participant &&
+        typeof candidate.participant.id === 'string' &&
+        typeof candidate.participant.displayName === 'string' &&
+        typeof candidate.participant.email === 'string' &&
+        (candidate.participant.avatarUrl === undefined ||
+          candidate.participant.avatarUrl === null ||
+          typeof candidate.participant.avatarUrl === 'string');
 
   if (
     typeof candidate.id !== 'string' ||
     !isDateString(candidate.createdAt) ||
     !isDateString(candidate.updatedAt) ||
     !(candidate.clearedAt === null || isDateString(candidate.clearedAt)) ||
-    !participant ||
-    typeof participant.id !== 'string' ||
-    typeof participant.displayName !== 'string' ||
-    typeof participant.email !== 'string' ||
-    !(
-      participant.avatarUrl === undefined ||
-      participant.avatarUrl === null ||
-      typeof participant.avatarUrl === 'string'
-    ) ||
+    !validIdentity ||
     typeof candidate.unreadCount !== 'number' ||
     !Number.isInteger(candidate.unreadCount) ||
     candidate.unreadCount < 0
@@ -67,6 +70,8 @@ function isConversationListItem(value: unknown): value is ConversationListItem {
       (typeof lastMessage.audioDurationMs === 'number' &&
         Number.isInteger(lastMessage.audioDurationMs))) &&
     isDateString(lastMessage.createdAt) &&
+    (lastMessage.preview === undefined ||
+      typeof lastMessage.preview === 'string') &&
     (lastMessage.status === null || isMessageStatus(lastMessage.status))
   );
 }

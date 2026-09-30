@@ -11,7 +11,8 @@
     "verify:message-flow": "ts-node-dev --transpile-only scripts/verify-message-flow.ts",
     "verify:offline-queue": "ts-node-dev --transpile-only scripts/verify-offline-queue-flow.ts",
     "verify:message-status": "ts-node-dev --transpile-only scripts/verify-message-status-flow.ts",
-    "verify:friend-notification": "node --env-file=.env scripts/verify-friend-notification.cjs"
+    "verify:friend-notification": "node --env-file=.env scripts/verify-friend-notification.cjs",
+    "verify:groups": "node --env-file=.env scripts/verify-group-flow.cjs"
   },
   "dependencies": {
     "@prisma/client": "^6.19.3",

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { ConversationType } from "@prisma/client";
 
 import { requireAuth } from "@/lib/auth/requireAuth";
 import { prisma } from "@/lib/prisma";
@@ -29,7 +30,11 @@ export async function DELETE(
 
   const deletedAt = new Date();
   const result = await prisma.conversationParticipant.updateMany({
-    where: { conversationId, userId },
+    where: {
+      conversationId,
+      userId,
+      conversation: { type: ConversationType.DIRECT },
+    },
     data: { clearedAt: deletedAt, deletedAt },
   });
   if (result.count === 0) {

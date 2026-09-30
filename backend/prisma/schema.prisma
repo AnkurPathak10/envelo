@@ -43,11 +43,11 @@ model PushToken {
 }
 
 model PushReceipt {
-  id           String   @id
-  token        String
-  createdAt    DateTime @default(now())
-  checkAfter   DateTime
-  attempts     Int      @default(0)
+  id         String   @id
+  token      String
+  createdAt  DateTime @default(now())
+  checkAfter DateTime
+  attempts   Int      @default(0)
 
   @@index([checkAfter])
 }
@@ -112,9 +112,14 @@ model RefreshToken {
 }
 
 model Conversation {
-  id        String   @id @default(cuid())
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id          String           @id @default(cuid())
+  type        ConversationType @default(DIRECT)
+  name        String?
+  photoUrl    String?
+  description String?
+  createdBy   String?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
 
   participants ConversationParticipant[]
   messages     Message[]
@@ -122,18 +127,32 @@ model Conversation {
   directKey String? @unique
 }
 
+enum ConversationType {
+  DIRECT
+  GROUP
+}
+
+enum ParticipantRole {
+  MEMBER
+  ADMIN
+}
+
 model ConversationParticipant {
-  id             String       @id @default(cuid())
+  id             String          @id @default(cuid())
   conversationId String
-  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  conversation   Conversation    @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   userId         String
-  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  joinedAt       DateTime     @default(now())
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  joinedAt       DateTime        @default(now())
+  role           ParticipantRole @default(MEMBER)
+  leftAt         DateTime?
+  mutedAt        DateTime?
   clearedAt      DateTime?
   deletedAt      DateTime?
 
   @@unique([conversationId, userId])
   @@index([userId, deletedAt])
+  @@index([conversationId, leftAt])
 }
 
 model Message {

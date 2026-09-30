@@ -1,6 +1,12 @@
 package com.envelo.notifications
 
-internal data class ConversationMessage(val id: String, val text: String, val timestamp: Long)
+internal data class ConversationMessage(
+  val id: String,
+  val text: String,
+  val timestamp: Long,
+  val senderName: String = "",
+  val senderId: String = ""
+)
 
 internal object ConversationHistory {
   // Android MessagingStyle retains at most 25 messages in a card.

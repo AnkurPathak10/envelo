@@ -21,6 +21,7 @@ type ExpressionTab = 'emoji' | 'gif';
 interface ExpressionPickerProps {
   onInsertEmoji: (emoji: string) => void;
   onSelectGif: (gif: GifResult) => Promise<void>;
+  emojiOnly?: boolean;
 }
 
 const data = emojiData as EmojiMartData;
@@ -38,6 +39,7 @@ const categoryIcons: Record<string, string> = {
 export function ExpressionPicker({
   onInsertEmoji,
   onSelectGif,
+  emojiOnly = false,
 }: ExpressionPickerProps) {
   const [tab, setTab] = useState<ExpressionTab>('emoji');
   const [emojiCategory, setEmojiCategory] = useState(
@@ -50,20 +52,22 @@ export function ExpressionPicker({
 
   return (
     <View style={styles.container}>
-      <View style={styles.tabs}>
-        <TabButton
-          active={tab === 'emoji'}
-          label="Emoji"
-          onPress={() => setTab('emoji')}
-          styles={styles}
-        />
-        <TabButton
-          active={tab === 'gif'}
-          label="GIFs"
-          onPress={() => setTab('gif')}
-          styles={styles}
-        />
-      </View>
+      {!emojiOnly ? (
+        <View style={styles.tabs}>
+          <TabButton
+            active={tab === 'emoji'}
+            label="Emoji"
+            onPress={() => setTab('emoji')}
+            styles={styles}
+          />
+          <TabButton
+            active={tab === 'gif'}
+            label="GIFs"
+            onPress={() => setTab('gif')}
+            styles={styles}
+          />
+        </View>
+      ) : null}
       {tab === 'emoji' ? (
         <EmojiPanel
           category={emojiCategory}

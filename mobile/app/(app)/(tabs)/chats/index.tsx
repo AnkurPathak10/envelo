@@ -1,11 +1,12 @@
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useFocusEffect, useIsFocused } from '@react-navigation/native';
-import { router } from 'expo-router';
+import { router, type Href } from 'expo-router';
 import {
   ActivityIndicator,
   AppState,
   FlatList,
+  Modal,
   Platform,
   Pressable,
   StyleSheet,
@@ -38,6 +39,7 @@ import {
 import { useAuth } from '@/lib/auth/AuthContext';
 import { useInboxBadge } from '@/lib/conversations/InboxBadgeContext';
 import { useFriendRequests } from '@/lib/friends/FriendRequestsContext';
+import { useGroupCreation } from '@/lib/groups/GroupCreationContext';
 import {
   getCachedConversations,
   saveCachedConversations,
@@ -119,6 +121,7 @@ export default function HomeScreen() {
   const { user } = useAuth();
   const { setUnreadCount } = useInboxBadge();
   const { revision: friendRevision, notifyChanged } = useFriendRequests();
+  const { reset: resetGroupCreation } = useGroupCreation();
   const {
     acknowledgeDeliveredMessages,
     connectionEpoch,
@@ -136,6 +139,7 @@ export default function HomeScreen() {
   const [isOffline, setIsOffline] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [reloadVersion, setReloadVersion] = useState(0);
+  const [composeMenuOpen, setComposeMenuOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<SearchUser[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -228,8 +232,15 @@ export default function HomeScreen() {
   );
 
   const openNewConversation = useCallback(() => {
+    setComposeMenuOpen(false);
     router.push('/(app)/(tabs)/chats/new-conversation');
   }, []);
+
+  const openNewGroup = useCallback(() => {
+    setComposeMenuOpen(false);
+    resetGroupCreation();
+    router.push('/(app)/(tabs)/chats/new-group' as Href);
+  }, [resetGroupCreation]);
 
   const openConversation = useCallback(
     (conversation: ConversationListItem) => {
@@ -246,9 +257,17 @@ export default function HomeScreen() {
         params: {
           conversationId: conversation.id,
           clearedAt: conversation.clearedAt ?? '',
-          participantAvatarUrl: conversation.participant.avatarUrl ?? '',
-          participantId: conversation.participant.id,
-          participantName: conversation.participant.displayName,
+          ...(conversation.type === 'GROUP'
+            ? {
+                conversationType: 'GROUP',
+                groupName: conversation.name,
+                groupPhotoUrl: conversation.photoUrl ?? '',
+              }
+            : {
+                participantAvatarUrl: conversation.participant.avatarUrl ?? '',
+                participantId: conversation.participant.id,
+                participantName: conversation.participant.displayName,
+              }),
         },
       });
     },
@@ -414,7 +433,14 @@ export default function HomeScreen() {
               mediaUrl: message.mediaUrl,
               audioDurationMs: message.audioDurationMs,
               createdAt: message.createdAt,
-              status: isIncoming ? null : 'SENT',
+              status:
+                existing.type === 'GROUP' ? null : isIncoming ? null : 'SENT',
+              ...(existing.type === 'GROUP'
+                ? {
+                    preview:
+                      message.inboxPreview ?? message.content ?? 'Message',
+                  }
+                : {}),
             },
             unreadCount: isIncoming
               ? existing.unreadCount + 1
@@ -727,7 +753,9 @@ export default function HomeScreen() {
           data={conversations}
           keyExtractor={(conversation) => conversation.id}
           ListEmptyComponent={
-            <EmptyConversationList onStartConversation={openNewConversation} />
+            <EmptyConversationList
+              onStartConversation={() => setComposeMenuOpen(true)}
+            />
           }
           renderItem={({ item }) => (
             <ConversationRow
@@ -739,6 +767,61 @@ export default function HomeScreen() {
           style={styles.list}
         />
       )}
+
+      <Pressable
+        accessibilityLabel="Compose"
+        accessibilityRole="button"
+        accessibilityState={{ expanded: composeMenuOpen }}
+        onPress={() => setComposeMenuOpen(true)}
+        style={({ pressed }) => [
+          styles.composeButton,
+          pressed && styles.headerButtonPressed,
+        ]}
+      >
+        <MaterialIcons color={c.onAccent} name="add" size={30} />
+      </Pressable>
+      <Modal
+        animationType="fade"
+        onRequestClose={() => setComposeMenuOpen(false)}
+        transparent
+        visible={composeMenuOpen}
+      >
+        <Pressable
+          accessibilityLabel="Close compose menu"
+          onPress={() => setComposeMenuOpen(false)}
+          style={styles.composeBackdrop}
+        >
+          <Pressable
+            onPress={(event) => event.stopPropagation()}
+            style={styles.composeMenu}
+          >
+            <Pressable
+              accessibilityRole="button"
+              onPress={openNewConversation}
+              style={styles.composeAction}
+            >
+              <MaterialIcons
+                color={c.accentPrimary}
+                name="chat-bubble-outline"
+                size={22}
+              />
+              <Text style={styles.composeActionText}>New Message</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              onPress={openNewGroup}
+              style={styles.composeAction}
+            >
+              <MaterialIcons
+                color={c.accentPrimary}
+                name="group-add"
+                size={22}
+              />
+              <Text style={styles.composeActionText}>New Group</Text>
+            </Pressable>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -750,6 +833,43 @@ const createStyles = (c: typeof colors.light) =>
       flex: 1,
       justifyContent: 'center',
       padding: spacing.xl,
+    },
+    composeAction: {
+      alignItems: 'center',
+      flexDirection: 'row',
+      gap: spacing.md,
+      minHeight: 52,
+      paddingHorizontal: spacing.md,
+    },
+    composeActionText: {
+      color: c.textPrimary,
+      fontSize: 16,
+      fontWeight: '600',
+    },
+    composeBackdrop: { backgroundColor: 'rgba(0,0,0,0.25)', flex: 1 },
+    composeButton: {
+      alignItems: 'center',
+      backgroundColor: c.accentPrimary,
+      borderRadius: 28,
+      bottom: spacing.lg,
+      elevation: 5,
+      height: 56,
+      justifyContent: 'center',
+      position: 'absolute',
+      right: spacing.lg,
+      width: 56,
+    },
+    composeMenu: {
+      backgroundColor: c.bgBase,
+      borderColor: c.border,
+      borderRadius: radius.md,
+      borderWidth: StyleSheet.hairlineWidth,
+      bottom: spacing.xl + 80,
+      elevation: 8,
+      overflow: 'hidden',
+      position: 'absolute',
+      right: spacing.lg,
+      width: 200,
     },
     brandRow: { alignItems: 'center', flexDirection: 'row', gap: spacing.sm },
     emptyList: { flexGrow: 1 },

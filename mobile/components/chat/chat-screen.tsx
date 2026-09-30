@@ -31,6 +31,7 @@ import {
   searchConversationMessages,
   type MessageReplyPreview,
   type TextMessage,
+  type GroupDetail,
 } from '@/lib/api/conversations';
 import { useAuth } from '@/lib/auth/AuthContext';
 import { useAppColorScheme } from '@/lib/theme/useAppColorScheme';
@@ -63,12 +64,16 @@ import { useSocket, type SocketTextMessage } from '@/lib/socket/SocketContext';
 
 interface ChatScreenProps {
   conversationId: string;
+  conversationType?: 'DIRECT' | 'GROUP';
+  groupMembers?: GroupDetail['members'];
   hiddenBefore?: string | null;
   isSearchOpen?: boolean;
   participantAvatarUrl?: string | null;
   participantName?: string;
   searchQuery?: string;
 }
+
+const EMPTY_GROUP_MEMBERS: GroupDetail['members'] = [];
 
 type InitialHistoryState = 'loading' | 'loaded' | 'error' | 'not-found';
 
@@ -132,6 +137,8 @@ function isCurrentAppViewVisible(): boolean {
 
 export function ChatScreen({
   conversationId,
+  conversationType = 'DIRECT',
+  groupMembers = EMPTY_GROUP_MEMBERS,
   hiddenBefore = null,
   isSearchOpen = false,
   participantAvatarUrl = null,
@@ -139,6 +146,21 @@ export function ChatScreen({
   searchQuery = '',
 }: ChatScreenProps) {
   const { user } = useAuth();
+  const isGroup = conversationType === 'GROUP';
+  const groupMemberById = useMemo(
+    () => new Map(groupMembers.map((member) => [member.id, member])),
+    [groupMembers]
+  );
+  const normalizeGroupStatuses = useCallback(
+    (items: TextMessage[]): TextMessage[] =>
+      isGroup
+        ? items.map((item) => ({
+            ...item,
+            status: item.senderId === user?.id ? ('SENT' as const) : null,
+          }))
+        : items,
+    [isGroup, user?.id]
+  );
   const isFocused = useIsFocused();
   const { setEnabled: setKeyboardControllerEnabled } = useKeyboardController();
   const {
@@ -379,7 +401,7 @@ export function ChatScreen({
             current.filter(
               (message) => message.conversationId === conversationId
             ),
-            visibleCached.messages
+            normalizeGroupStatuses(visibleCached.messages)
           )
         );
         setNextCursor(visibleCached.nextCursor);
@@ -406,7 +428,7 @@ export function ChatScreen({
           ).catch(() => undefined);
         }
         if (!isActive) return;
-        acknowledgeDeliveredMessages(visiblePage.messages);
+        if (!isGroup) acknowledgeDeliveredMessages(visiblePage.messages);
         setMessages((current) =>
           mergeTextMessages(
             current.filter(
@@ -414,7 +436,7 @@ export function ChatScreen({
                 message.conversationId === conversationId &&
                 isAfterConversationCutoff(message.createdAt, liveCutoff)
             ),
-            visiblePage.messages
+            normalizeGroupStatuses(visiblePage.messages)
           )
         );
         setNextCursor(
@@ -472,6 +494,8 @@ export function ChatScreen({
     acknowledgeDeliveredMessages,
     conversationId,
     hiddenBefore,
+    isGroup,
+    normalizeGroupStatuses,
     reloadVersion,
     requestScrollToEnd,
     user?.id,
@@ -551,11 +575,12 @@ export function ChatScreen({
   useEffect(
     () =>
       subscribeToMessageStatuses(({ messageId, status }) => {
+        if (isGroup) return;
         setMessages((current) =>
           updateMessageStatus(current, messageId, status)
         );
       }),
-    [subscribeToMessageStatuses]
+    [isGroup, subscribeToMessageStatuses]
   );
 
   const renderedMessages = useMemo(
@@ -621,6 +646,7 @@ export function ChatScreen({
 
   useEffect(() => {
     if (
+      isGroup ||
       !isFocused ||
       !isAppViewVisible ||
       !isCurrentAppViewVisible() ||
@@ -639,6 +665,7 @@ export function ChatScreen({
     conversationId,
     isAppViewVisible,
     isFocused,
+    isGroup,
     latestIncomingMessageId,
     markConversationRead,
   ]);
@@ -651,8 +678,10 @@ export function ChatScreen({
 
     try {
       const page = await getMessageHistory(conversationId, nextCursor);
-      acknowledgeDeliveredMessages(page.messages);
-      setMessages((current) => mergeTextMessages(current, page.messages));
+      if (!isGroup) acknowledgeDeliveredMessages(page.messages);
+      setMessages((current) =>
+        mergeTextMessages(current, normalizeGroupStatuses(page.messages))
+      );
       setNextCursor(page.nextCursor);
       setIsOffline(false);
       if (user?.id) {
@@ -676,8 +705,10 @@ export function ChatScreen({
   }, [
     acknowledgeDeliveredMessages,
     conversationId,
+    isGroup,
     isLoadingEarlier,
     nextCursor,
+    normalizeGroupStatuses,
     user?.id,
   ]);
 
@@ -923,13 +954,19 @@ export function ChatScreen({
       setReplyTo({
         id: message.id,
         senderId: message.senderId,
-        senderName: message.senderId === user?.id ? 'You' : participantName,
+        senderName:
+          message.senderId === user?.id
+            ? 'You'
+            : isGroup
+              ? (groupMemberById.get(message.senderId)?.displayName ??
+                'Group member')
+              : participantName,
         content: message.content,
         mediaUrl: message.mediaUrl,
         audioDurationMs: message.audioDurationMs,
       });
     },
-    [participantName, user?.id]
+    [groupMemberById, isGroup, participantName, user?.id]
   );
 
   const flushPendingScroll = useCallback(() => {
@@ -1096,12 +1133,22 @@ export function ChatScreen({
             avatarUrl={
               item.senderId === user?.id
                 ? (user?.avatarUrl ?? null)
-                : participantAvatarUrl
+                : isGroup
+                  ? (groupMemberById.get(item.senderId)?.avatarUrl ?? null)
+                  : participantAvatarUrl
             }
             isOutgoing={item.senderId === user?.id}
             message={item}
             onReply={isSearchOpen ? undefined : beginReply}
-            senderName={item.senderId === user?.id ? 'You' : participantName}
+            showSenderName={isGroup}
+            senderName={
+              item.senderId === user?.id
+                ? 'You'
+                : isGroup
+                  ? (groupMemberById.get(item.senderId)?.displayName ??
+                    'Group member')
+                  : participantName
+            }
           />
         )}
         scrollEnabled={isInitialPositionReady}

@@ -30,6 +30,7 @@ interface MessageBubbleProps {
   isOutgoing: boolean;
   avatarUrl: string | null;
   senderName: string;
+  showSenderName?: boolean;
   onReply?: (message: RenderableTextMessage) => void;
 }
 
@@ -69,6 +70,7 @@ export function MessageBubble({
   isOutgoing,
   onReply,
   senderName,
+  showSenderName = false,
 }: MessageBubbleProps) {
   const isVoiceMessage = Boolean(message.mediaUrl && message.audioDurationMs);
   const [isImageLoading, setIsImageLoading] = useState(
@@ -172,6 +174,11 @@ export function MessageBubble({
             { transform: [{ translateX: swipeX }] },
           ]}
         >
+          {showSenderName && !isOutgoing ? (
+            <Text numberOfLines={1} style={styles.groupSenderName}>
+              {senderName}
+            </Text>
+          ) : null}
           {message.replyTo ? (
             <View
               style={[
@@ -341,6 +348,12 @@ const createStyles = (c: typeof colors.light) =>
       paddingVertical: 3,
       position: 'absolute',
       right: 7,
+    },
+    groupSenderName: {
+      color: c.accentPrimary,
+      fontSize: 13,
+      fontWeight: '700',
+      marginBottom: 4,
     },
     incomingBubble: {
       backgroundColor: c.bgSurface,

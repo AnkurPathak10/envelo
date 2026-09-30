@@ -20,7 +20,7 @@ export async function sendMessagePush(
 ): Promise<void> {
   if (recipientIds.length === 0) return;
   try {
-    const [sender, registrations] = await Promise.all([
+    const [sender, registrations, conversation] = await Promise.all([
       prisma.user.findUnique({
         where: { id: senderId },
         select: { displayName: true, avatarUrl: true },
@@ -29,17 +29,23 @@ export async function sendMessagePush(
         where: { userId: { in: recipientIds } },
         select: { token: true, userId: true },
       }),
+      prisma.conversation.findUnique({
+        where: { id: message.conversationId },
+        select: { type: true, name: true, photoUrl: true },
+      }),
     ]);
     if (!sender || registrations.length === 0) return;
     const parsedSentAt = Date.parse(message.createdAt);
     const sentAt = Number.isFinite(parsedSentAt) ? parsedSentAt : Date.now();
+    const group = conversation?.type === "GROUP" ? conversation : null;
+    const messageText = preview(message);
 
     const messages: ExpoPushMessage[] = registrations
       .filter(({ token }) => Expo.isExpoPushToken(token))
       .map(({ token, userId }) => ({
         to: token,
-        title: sender.displayName,
-        body: preview(message),
+        title: group?.name ?? sender.displayName,
+        body: group ? `${sender.displayName}: ${messageText}` : messageText,
         // richContent.image becomes an expanded photo attachment on Android,
         // not the small circular sender avatar used by conversation notifications.
         data: {
@@ -48,6 +54,10 @@ export async function sendMessagePush(
           senderId,
           senderName: sender.displayName,
           senderAvatarUrl: sender.avatarUrl,
+          ...(group
+            ? { groupName: group.name, groupPhotoUrl: group.photoUrl }
+            : {}),
+          messageText,
           sentAt,
           recipientUserId: userId,
           conversationId: message.conversationId,

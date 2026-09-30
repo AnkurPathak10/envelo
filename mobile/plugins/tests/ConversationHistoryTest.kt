@@ -14,5 +14,12 @@ fun main() {
   check(history.size == 25 && history.first().id == "new5" && history.last().id == "new29")
   val afterDismiss = ConversationHistory.append(emptyList(), ConversationMessage("fresh", "New", 500))
   check(afterDismiss.size == 1) { "Dismissed notification must not resurrect its old history" }
+  val group = ConversationHistory.append(
+    listOf(ConversationMessage("g1", "First", 1, "Ankur", "ankur")),
+    ConversationMessage("g2", "Second", 2, "Ravi", "ravi")
+  )
+  check(group.map { it.senderName } == listOf("Ankur", "Ravi")) {
+    "Group history must retain the author of each message"
+  }
   println("Conversation history: five-message grouping, emoji, deduplication, ordering, cap and dismissal passed")
 }

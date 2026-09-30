@@ -1,4 +1,4 @@
-import type { Prisma } from "../generated/prisma";
+import { ConversationType, type Prisma } from "../generated/prisma";
 import type { Server, Socket } from "socket.io";
 import { z } from "zod";
 
@@ -75,6 +75,7 @@ export interface TextMessagePayload {
   } | null;
   createdAt: string;
   clientMessageId: string | null;
+  inboxPreview?: string;
 }
 
 export type MessageSendAcknowledgement =
@@ -173,6 +174,7 @@ export const textMessageSelect = {
   audioDurationMs: true,
   createdAt: true,
   clientMessageId: true,
+  sender: { select: { displayName: true } },
   replyTo: {
     select: {
       id: true,
@@ -193,6 +195,7 @@ type SelectedTextMessage = Prisma.MessageGetPayload<{
 export function toTextMessagePayload(
   message: SelectedTextMessage,
   viewerClearedAt: Date | null = null,
+  conversationType: ConversationType = ConversationType.DIRECT,
 ): TextMessagePayload {
   if (message.content === null && message.mediaUrl === null) {
     throw new Error("Persisted message has neither content nor media.");
@@ -207,6 +210,18 @@ export function toTextMessagePayload(
     audioDurationMs: message.audioDurationMs,
     createdAt: message.createdAt.toISOString(),
     clientMessageId: message.clientMessageId,
+    ...(conversationType === ConversationType.GROUP
+      ? {
+          inboxPreview: `${message.sender.displayName}: ${
+            message.content ??
+            (message.audioDurationMs !== null
+              ? "Voice message"
+              : message.mediaUrl
+                ? "Photo"
+                : "Message")
+          }`,
+        }
+      : {}),
     replyTo:
       message.replyTo &&
       (!viewerClearedAt || message.replyTo.createdAt > viewerClearedAt)

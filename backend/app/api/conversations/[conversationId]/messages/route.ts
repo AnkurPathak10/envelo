@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { ConversationType } from "@prisma/client";
 
 import { requireAuth } from "@/lib/auth/requireAuth";
 import {
@@ -40,9 +41,17 @@ export async function GET(request: NextRequest, context: MessageRouteContext) {
 
   const participation = await prisma.conversationParticipant.findUnique({
     where: { conversationId_userId: { conversationId, userId } },
-    select: { clearedAt: true },
+    select: {
+      clearedAt: true,
+      leftAt: true,
+      conversation: { select: { type: true } },
+    },
   });
-  if (!participation) {
+  if (
+    !participation ||
+    (participation.conversation.type === ConversationType.GROUP &&
+      participation.leftAt !== null)
+  ) {
     return NextResponse.json(
       { error: "Conversation not found" },
       { status: 404 },
@@ -149,7 +158,14 @@ export async function DELETE(
 
   const clearedAt = new Date();
   const result = await prisma.conversationParticipant.updateMany({
-    where: { conversationId, userId },
+    where: {
+      conversationId,
+      userId,
+      OR: [
+        { conversation: { type: ConversationType.DIRECT } },
+        { leftAt: null, conversation: { type: ConversationType.GROUP } },
+      ],
+    },
     data: { clearedAt, deletedAt: null },
   });
   if (result.count === 0) {

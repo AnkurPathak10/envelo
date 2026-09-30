@@ -1,4 +1,8 @@
-import { MessageStatusType, type Prisma } from "@prisma/client";
+import {
+  ConversationType,
+  MessageStatusType,
+  type Prisma,
+} from "@prisma/client";
 
 export const directConversationSelect = {
   id: true,
@@ -27,12 +31,16 @@ type DirectConversation = Prisma.ConversationGetPayload<{
 export function conversationListSelect(currentUserId: string) {
   return {
     id: true,
+    type: true,
+    name: true,
+    photoUrl: true,
     createdAt: true,
     updatedAt: true,
     participants: {
       select: {
         clearedAt: true,
         deletedAt: true,
+        leftAt: true,
         user: {
           select: {
             id: true,
@@ -49,6 +57,7 @@ export function conversationListSelect(currentUserId: string) {
       select: {
         id: true,
         senderId: true,
+        sender: { select: { displayName: true } },
         content: true,
         mediaUrl: true,
         audioDurationMs: true,
@@ -147,9 +156,12 @@ export function toConversationListItem(
 
   return {
     id: conversation.id,
+    type: conversation.type,
     createdAt: conversation.createdAt.toISOString(),
     updatedAt: conversation.updatedAt.toISOString(),
-    participant: getOtherParticipant(conversation, currentUserId),
+    ...(conversation.type === ConversationType.GROUP
+      ? { name: conversation.name, photoUrl: conversation.photoUrl }
+      : { participant: getOtherParticipant(conversation, currentUserId) }),
     lastMessage: lastMessage
       ? {
           id: lastMessage.id,
@@ -158,7 +170,22 @@ export function toConversationListItem(
           mediaUrl: lastMessage.mediaUrl,
           audioDurationMs: lastMessage.audioDurationMs,
           createdAt: lastMessage.createdAt.toISOString(),
-          status: lastMessage.statuses[0]?.status ?? null,
+          status:
+            conversation.type === ConversationType.GROUP
+              ? null
+              : (lastMessage.statuses[0]?.status ?? null),
+          ...(conversation.type === ConversationType.GROUP
+            ? {
+                preview: `${lastMessage.sender.displayName}: ${
+                  lastMessage.content ??
+                  (lastMessage.audioDurationMs
+                    ? "Voice message"
+                    : lastMessage.mediaUrl
+                      ? "Photo"
+                      : "Message")
+                }`,
+              }
+            : {}),
         }
       : null,
     clearedAt: participation.clearedAt?.toISOString() ?? null,
@@ -184,5 +211,14 @@ export function hasOtherParticipant(
 ): boolean {
   return conversation.participants.some(
     ({ user }) => user.id !== currentUserId,
+  );
+}
+
+export function isActiveGroupMember(
+  conversation: ConversationListConversation,
+  currentUserId: string,
+): boolean {
+  return conversation.participants.some(
+    ({ user, leftAt }) => user.id === currentUserId && leftAt === null,
   );
 }

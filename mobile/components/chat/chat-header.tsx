@@ -24,9 +24,11 @@ interface ChatHeaderProps {
   onCloseSearch: () => void;
   onDeleteChat: () => void;
   onOpenSearch: () => void;
+  onOpenInfo?: () => void;
   onSearchQueryChange: (query: string) => void;
   participantId: string;
   searchQuery: string;
+  showConversationActions?: boolean;
 }
 
 export function ChatHeader({
@@ -39,9 +41,11 @@ export function ChatHeader({
   onCloseSearch,
   onDeleteChat,
   onOpenSearch,
+  onOpenInfo,
   onSearchQueryChange,
   participantId,
   searchQuery,
+  showConversationActions = true,
 }: ChatHeaderProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const scheme = useAppColorScheme();
@@ -69,7 +73,13 @@ export function ChatHeader({
             <MaterialIcons color={c.textPrimary} name="arrow-back" size={27} />
           </Pressable>
 
-          <View style={styles.identity}>
+          <Pressable
+            accessibilityLabel={onOpenInfo ? 'Open group info' : name}
+            accessibilityRole={onOpenInfo ? 'button' : undefined}
+            disabled={!onOpenInfo}
+            onPress={onOpenInfo}
+            style={styles.identity}
+          >
             <ConversationAvatar
               avatarUrl={avatarUrl}
               name={name}
@@ -79,7 +89,7 @@ export function ChatHeader({
             <Text numberOfLines={1} style={styles.name}>
               {name}
             </Text>
-          </View>
+          </Pressable>
 
           <Pressable
             accessibilityLabel="Open chat menu"
@@ -146,21 +156,25 @@ export function ChatHeader({
               styles={styles}
               textColor={c.textPrimary}
             />
-            <MenuRow
-              icon="cleaning-services"
-              label="Clear chat"
-              onPress={() => chooseAction(onClearChat)}
-              styles={styles}
-              textColor={c.textPrimary}
-            />
-            <MenuRow
-              destructive
-              icon="delete-outline"
-              label="Delete chat"
-              onPress={() => chooseAction(onDeleteChat)}
-              styles={styles}
-              textColor={c.error}
-            />
+            {showConversationActions ? (
+              <>
+                <MenuRow
+                  icon="cleaning-services"
+                  label="Clear chat"
+                  onPress={() => chooseAction(onClearChat)}
+                  styles={styles}
+                  textColor={c.textPrimary}
+                />
+                <MenuRow
+                  destructive
+                  icon="delete-outline"
+                  label="Delete chat"
+                  onPress={() => chooseAction(onDeleteChat)}
+                  styles={styles}
+                  textColor={c.error}
+                />
+              </>
+            ) : null}
           </Pressable>
         </Pressable>
       </Modal>

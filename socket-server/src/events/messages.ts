@@ -1,4 +1,8 @@
-import { MessageStatusType, Prisma } from "../generated/prisma";
+import {
+  ConversationType,
+  MessageStatusType,
+  Prisma,
+} from "../generated/prisma";
 
 import {
   messageSendSchema,
@@ -15,6 +19,7 @@ import { userRoom } from "../lib/rooms";
 async function findExistingClientMessage(
   senderId: string,
   clientMessageId: string,
+  conversationId: string,
 ) {
   const message = await prisma.message.findUnique({
     where: {
@@ -24,8 +29,9 @@ async function findExistingClientMessage(
       ...textMessageSelect,
       conversation: {
         select: {
+          type: true,
           participants: {
-            where: { userId: senderId },
+            where: { userId: senderId, leftAt: null },
             take: 1,
             select: { clearedAt: true },
           },
@@ -33,9 +39,12 @@ async function findExistingClientMessage(
       },
     },
   });
-  return message
+  return message &&
+    message.conversationId === conversationId &&
+    message.conversation.participants.length > 0
     ? {
         message,
+        conversationType: message.conversation.type,
         viewerClearedAt:
           message.conversation.participants[0]?.clearedAt ?? null,
       }
@@ -64,6 +73,7 @@ export function registerMessageHandlers(
         const existingMessage = await findExistingClientMessage(
           senderId,
           clientMessageId,
+          parsed.data.conversationId,
         );
         if (existingMessage) {
           acknowledge?.({
@@ -71,83 +81,98 @@ export function registerMessageHandlers(
             message: toTextMessagePayload(
               existingMessage.message,
               existingMessage.viewerClearedAt,
+              existingMessage.conversationType,
             ),
           });
           return;
         }
       }
 
-      const transactionResult = await prisma.$transaction(async (tx) => {
-        const senderParticipant = await tx.conversationParticipant.findUnique({
-          where: {
-            conversationId_userId: {
+      const transactionResult = await prisma.$transaction(
+        async (tx) => {
+          const senderParticipant = await tx.conversationParticipant.findFirst({
+            where: {
               conversationId: parsed.data.conversationId,
               userId: senderId,
+              leftAt: null,
             },
-          },
-          select: {
-            conversation: {
-              select: {
-                participants: { select: { userId: true, clearedAt: true } },
+            select: {
+              conversation: {
+                select: {
+                  type: true,
+                  participants: {
+                    where: { leftAt: null },
+                    select: {
+                      userId: true,
+                      clearedAt: true,
+                      mutedAt: true,
+                    },
+                  },
+                },
               },
             },
-          },
-        });
+          });
 
-        if (!senderParticipant) return null;
+          if (!senderParticipant) return null;
 
-        if (parsed.data.replyToId) {
-          const replyTarget = await tx.message.findFirst({
-            where: {
-              id: parsed.data.replyToId,
+          if (parsed.data.replyToId) {
+            const replyTarget = await tx.message.findFirst({
+              where: {
+                id: parsed.data.replyToId,
+                conversationId: parsed.data.conversationId,
+              },
+              select: { id: true },
+            });
+            if (!replyTarget) return { invalidReply: true };
+          }
+
+          const recipientIds = senderParticipant.conversation.participants
+            .map((participant) => participant.userId)
+            .filter((userId) => userId !== senderId);
+
+          const message = await tx.message.create({
+            data: {
               conversationId: parsed.data.conversationId,
+              senderId,
+              content: parsed.data.content,
+              clientMessageId: clientMessageId ?? null,
+              mediaUrl: parsed.data.mediaUrl ?? null,
+              audioDurationMs: parsed.data.audioDurationMs ?? null,
+              replyToId: parsed.data.replyToId ?? null,
             },
+            select: textMessageSelect,
+          });
+
+          if (
+            senderParticipant.conversation.type === ConversationType.DIRECT &&
+            recipientIds.length > 0
+          ) {
+            await tx.messageStatus.createMany({
+              data: recipientIds.map((userId) => ({
+                messageId: message.id,
+                userId,
+                status: MessageStatusType.SENT,
+              })),
+            });
+          }
+
+          await tx.conversation.update({
+            where: { id: parsed.data.conversationId },
+            data: { updatedAt: new Date() },
             select: { id: true },
           });
-          if (!replyTarget) return { invalidReply: true };
-        }
 
-        const recipientIds = senderParticipant.conversation.participants
-          .map((participant) => participant.userId)
-          .filter((userId) => userId !== senderId);
-
-        const message = await tx.message.create({
-          data: {
-            conversationId: parsed.data.conversationId,
-            senderId,
-            content: parsed.data.content,
-            clientMessageId: clientMessageId ?? null,
-            mediaUrl: parsed.data.mediaUrl ?? null,
-            audioDurationMs: parsed.data.audioDurationMs ?? null,
-            replyToId: parsed.data.replyToId ?? null,
-          },
-          select: textMessageSelect,
-        });
-
-        if (recipientIds.length > 0) {
-          await tx.messageStatus.createMany({
-            data: recipientIds.map((userId) => ({
-              messageId: message.id,
-              userId,
-              status: MessageStatusType.SENT,
-            })),
-          });
-        }
-
-        await tx.conversation.update({
-          where: { id: parsed.data.conversationId },
-          data: { updatedAt: new Date() },
-          select: { id: true },
-        });
-
-        return {
-          message,
-          participants: senderParticipant.conversation.participants,
-        };
-      }, {
-        maxWait: 5_000,
-        timeout: 15_000,
-      });
+          return {
+            message,
+            conversationType: senderParticipant.conversation.type,
+            participants: senderParticipant.conversation.participants,
+          };
+        },
+        {
+          maxWait: 5_000,
+          timeout: 15_000,
+        },
+      );
 
       if (!transactionResult || "invalidReply" in transactionResult) {
         console.warn(
@@ -174,6 +199,7 @@ export function registerMessageHandlers(
       const senderMessage = toTextMessagePayload(
         transactionResult.message,
         senderParticipant?.clearedAt ?? null,
+        transactionResult.conversationType,
       );
       for (const participant of transactionResult.participants) {
         io.to(userRoom(participant.userId)).emit(
@@ -181,13 +207,17 @@ export function registerMessageHandlers(
           toTextMessagePayload(
             transactionResult.message,
             participant.clearedAt,
+            transactionResult.conversationType,
           ),
         );
       }
       acknowledge?.({ ok: true, message: senderMessage });
       const recipientIds = transactionResult.participants
-        .map((participant) => participant.userId)
-        .filter((userId) => userId !== senderId);
+        .filter(
+          (participant) =>
+            participant.userId !== senderId && participant.mutedAt === null,
+        )
+        .map((participant) => participant.userId);
       void sendMessagePush(senderId, recipientIds, senderMessage);
     } catch (error: unknown) {
       if (
@@ -198,6 +228,7 @@ export function registerMessageHandlers(
         const existingMessage = await findExistingClientMessage(
           senderId,
           clientMessageId,
+          parsed.data.conversationId,
         );
         if (existingMessage) {
           acknowledge?.({
@@ -205,6 +236,7 @@ export function registerMessageHandlers(
             message: toTextMessagePayload(
               existingMessage.message,
               existingMessage.viewerClearedAt,
+              existingMessage.conversationType,
             ),
           });
           return;

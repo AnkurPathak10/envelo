@@ -16,12 +16,11 @@ export interface SearchUser extends ConversationParticipant {
   incomingRequestId?: string;
 }
 
-export interface ConversationListItem {
+interface ConversationListBase {
   id: string;
   createdAt: string;
   updatedAt: string;
   clearedAt: string | null;
-  participant: ConversationParticipant;
   lastMessage: {
     id: string;
     senderId: string;
@@ -30,8 +29,26 @@ export interface ConversationListItem {
     audioDurationMs: number | null;
     createdAt: string;
     status: MessageStatus | null;
+    preview?: string;
   } | null;
   unreadCount: number;
+}
+
+export type ConversationListItem = ConversationListBase &
+  (
+    | { type: 'DIRECT'; participant: ConversationParticipant }
+    | { type: 'GROUP'; name: string; photoUrl: string | null }
+  );
+
+export interface GroupDetail {
+  id: string;
+  name: string;
+  photoUrl: string | null;
+  description: string | null;
+  createdAt: string;
+  updatedAt: string;
+  mutedAt: string | null;
+  members: (ConversationParticipant & { role: 'ADMIN' | 'MEMBER' })[];
 }
 
 export type MessageStatus = 'SENT' | 'DELIVERED' | 'READ';
@@ -56,6 +73,7 @@ export interface TextMessage {
   createdAt: string;
   status: MessageStatus | null;
   clientMessageId?: string | null;
+  inboxPreview?: string;
 }
 
 export interface MessageHistoryPage {
@@ -109,6 +127,97 @@ export async function createDirectConversation(participantId: string): Promise<{
     }
   );
   return response.conversation;
+}
+
+export async function createGroupConversation(
+  name: string,
+  memberIds: string[],
+  photoUrl?: string
+): Promise<GroupDetail> {
+  return apiRequest<GroupDetail>('/api/conversations/group', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      name,
+      memberIds,
+      ...(photoUrl ? { photoUrl } : {}),
+    }),
+  });
+}
+
+export async function getGroupConversation(
+  conversationId: string
+): Promise<GroupDetail> {
+  return apiRequest<GroupDetail>(
+    `/api/conversations/group/${encodeURIComponent(conversationId)}`
+  );
+}
+
+const groupPath = (id: string) =>
+  `/api/conversations/group/${encodeURIComponent(id)}`;
+
+export async function updateGroupConversation(
+  id: string,
+  changes: {
+    description?: string | null;
+    name?: string;
+    photoUrl?: string | null;
+  }
+): Promise<GroupDetail> {
+  return apiRequest<GroupDetail>(groupPath(id), {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(changes),
+  });
+}
+
+export async function addGroupMembers(
+  id: string,
+  memberIds: string[]
+): Promise<GroupDetail> {
+  return apiRequest<GroupDetail>(`${groupPath(id)}/members`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ memberIds }),
+  });
+}
+
+export async function removeGroupMember(
+  id: string,
+  userId: string
+): Promise<{ deleted: boolean }> {
+  return apiRequest<{ deleted: boolean }>(
+    `${groupPath(id)}/members/${encodeURIComponent(userId)}`,
+    { method: 'DELETE' }
+  );
+}
+
+export async function setGroupMemberRole(
+  id: string,
+  userId: string,
+  role: 'ADMIN' | 'MEMBER'
+): Promise<GroupDetail> {
+  const action = role === 'ADMIN' ? 'promote' : 'demote';
+  return apiRequest<GroupDetail>(
+    `${groupPath(id)}/members/${encodeURIComponent(userId)}/${action}`,
+    { method: 'POST' }
+  );
+}
+
+export async function setGroupMuted(
+  id: string,
+  muted: boolean
+): Promise<GroupDetail> {
+  return apiRequest<GroupDetail>(
+    `${groupPath(id)}/${muted ? 'mute' : 'unmute'}`,
+    {
+      method: 'POST',
+    }
+  );
+}
+
+export async function dissolveGroup(id: string): Promise<{ deleted: boolean }> {
+  return apiRequest<{ deleted: boolean }>(groupPath(id), { method: 'DELETE' });
 }
 
 export async function getMessageHistory(

@@ -1,4 +1,4 @@
-import { MessageStatusType } from "../generated/prisma";
+import { ConversationType, MessageStatusType } from "../generated/prisma";
 import { z } from "zod";
 
 import type { EnveloServer, MessageStatusPayload } from "./messages";
@@ -35,8 +35,9 @@ export async function markMessagesDelivered(
         senderId: true,
         conversation: {
           select: {
+            type: true,
             participants: {
-              where: { userId },
+              where: { userId, leftAt: null },
               select: { id: true },
             },
           },
@@ -55,7 +56,11 @@ export async function markMessagesDelivered(
     }
 
     const deliverableIds = messages
-      .filter((message) => message.senderId !== userId)
+      .filter(
+        (message) =>
+          message.senderId !== userId &&
+          message.conversation.type === ConversationType.DIRECT,
+      )
       .map((message) => message.id);
 
     if (deliverableIds.length === 0) return [];
@@ -88,11 +93,16 @@ export async function markConversationRead(
   return prisma.$transaction(async (tx) => {
     const participation = await tx.conversationParticipant.findUnique({
       where: { conversationId_userId: { conversationId, userId } },
-      select: { id: true },
+      select: {
+        id: true,
+        leftAt: true,
+        conversation: { select: { type: true } },
+      },
     });
-    if (!participation) {
+    if (!participation || participation.leftAt !== null) {
       throw new MessageStatusAuthorizationError("Conversation not found");
     }
+    if (participation.conversation.type === ConversationType.GROUP) return [];
 
     const boundaryMessage = await tx.message.findFirst({
       where: { id: upToMessageId, conversationId },

@@ -75,30 +75,42 @@ private class ConversationPresentationDelegate(context: Context) : ExpoPresentat
     }.getOrDefault(JSONArray())
     val entries = (0 until history.length()).mapNotNull { index ->
       history.optJSONObject(index)?.let {
-        ConversationMessage(it.optString("id"), it.optString("text"), it.optLong("time"))
+        ConversationMessage(it.optString("id"), it.optString("text"), it.optLong("time"),
+          it.optString("senderName"), it.optString("senderId"))
       }
     }
     val messageId = data.optString("messageId").ifEmpty { data.optString("requestId") }
     val sentAt = data.optLong("sentAt", notification.originDate.time).takeIf { it > 0 }
       ?: System.currentTimeMillis()
-    val retained = ConversationHistory.append(entries, ConversationMessage(messageId, request.content.text.orEmpty(), sentAt))
+    val groupName = if (data.isNull("groupName")) null else
+      data.optString("groupName").takeIf { it.isNotBlank() }
+    val senderName = data.optString("senderName").ifBlank { request.content.title ?: "Someone" }
+    val messageText = data.optString("messageText").ifBlank { request.content.text.orEmpty() }
+    val retained = ConversationHistory.append(entries, ConversationMessage(messageId, messageText, sentAt,
+      senderName, data.optString("senderId")))
     if (retained === entries) return
 
-    val name = data.optString("senderName").ifBlank { request.content.title ?: "Someone" }
-    val avatar = NotificationAvatar.load(data.optString("senderAvatarUrl"), name)
-    val sender = Person.Builder().setName(name).setKey(data.optString("senderId"))
+    val name = groupName ?: senderName
+    val avatar = NotificationAvatar.load(
+      if (groupName != null) data.optString("groupPhotoUrl") else data.optString("senderAvatarUrl"), name)
+    val sender = Person.Builder().setName(senderName).setKey(data.optString("senderId"))
       .setIcon(IconCompat.createWithBitmap(avatar)).build()
     val me = Person.Builder().setName("You").setKey(data.optString("recipientUserId")).build()
     // Android R+ takes the heading from the linked shortcut. The title also
     // covers older/OEM layouts, where MessagingStyle ignores setContentTitle.
     val style = NotificationCompat.MessagingStyle(me)
       .setConversationTitle(name)
-      .setGroupConversation(false)
+      .setGroupConversation(groupName != null)
     retained.forEach { entry ->
-      style.addMessage(entry.text, entry.timestamp, sender)
+      val author = if (entry.senderName == senderName || groupName == null) sender else
+        Person.Builder().setName(entry.senderName).setKey(entry.senderId)
+          .setIcon(IconCompat.createWithBitmap(avatar)).build()
+      style.addMessage(entry.text, entry.timestamp, author)
     }
     val shortcut = runCatching {
-      publishChatShortcut(data, name, avatar, sender)
+      publishChatShortcut(data, name, avatar,
+        if (groupName != null) Person.Builder().setName(name).setKey(data.optString("conversationId"))
+          .setIcon(IconCompat.createWithBitmap(avatar)).build() else sender)
     }.onFailure { error ->
       Log.w("EnveloNotifications", "Could not publish conversation shortcut", error)
     }.getOrNull()
@@ -110,13 +122,14 @@ private class ConversationPresentationDelegate(context: Context) : ExpoPresentat
       .setLargeIcon(avatar)
       .setCategory(if (data.optString("type") == "chat_message") NotificationCompat.CATEGORY_MESSAGE else NotificationCompat.CATEGORY_SOCIAL)
       .setContentTitle(name)
-      .setContentText(retained.last().text)
+      .setContentText(if (groupName != null) "${retained.last().senderName}: ${retained.last().text}" else retained.last().text)
       .setWhen(retained.last().timestamp)
       .setShowWhen(true)
       .setNumber(retained.size)
       .addExtras(Bundle().apply {
         putString(HISTORY, JSONArray(retained.map {
           JSONObject().put("id", it.id).put("text", it.text).put("time", it.timestamp)
+            .put("senderName", it.senderName).put("senderId", it.senderId)
         }).toString())
       })
     if (shortcut != null) builder.setShortcutInfo(shortcut)

@@ -1,5 +1,4 @@
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
-import { router } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -17,19 +16,6 @@ export default function SettingsScreen() {
   return (
     <SafeAreaView edges={['top']} style={styles.screen}>
       <Text style={styles.title}>Settings</Text>
-      <Pressable
-        accessibilityRole="button"
-        onPress={() => router.push('/(app)/(tabs)/chats/new-conversation')}
-        style={({ pressed }) => [styles.action, pressed && styles.pressed]}
-      >
-        <MaterialIcons
-          color={c.accentPrimary}
-          name="chat-bubble-outline"
-          size={23}
-        />
-        <Text style={styles.actionText}>New conversation</Text>
-        <MaterialIcons color={c.textMuted} name="chevron-right" size={23} />
-      </Pressable>
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Appearance</Text>
         <ThemeToggle />

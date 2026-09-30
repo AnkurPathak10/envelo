@@ -31,6 +31,13 @@ older/OEM layouts; the notification is explicitly marked as non-group. Friend
 requests are not conversation shortcuts. Publishing a shortcut is best-effort:
 if the OS rejects it, the push still appears and retains its message history.
 
+Group pushes carry the group name/photo separately from the author. The native
+renderer uses the group photo for the card and conversation shortcut, the group
+name as its title, and a group `MessagingStyle` with each message's own sender
+name retained in history. The plain push fallback reads `Sender: message`.
+This native presentation requires a rebuilt Android app; server changes alone
+cannot replace the existing installed renderer.
+
 This integration targets Expo SDK 54, expo-notifications 0.32.17 and
 firebase-messaging 24.0.1. When upgrading, check `FirebaseMessagingService.handleIntent`,
 Expo's `body` data envelope and presentation delegate APIs. Notification delegation
@@ -50,6 +57,9 @@ is disabled so Google Play Services does not bypass the custom renderer.
   messages from one sender, including an emoji. Expect one card with message history.
 - Send from a second sender: expect a separate card. Test a sender with a photo and
   a sender without one. Expanding either card must never show an enlarged photo.
+- Send from two members of the same group: expect one group card headed by the
+  group name, with the group photo (or group initials), and each expanded message
+  labeled with its own sender. Direct-chat cards should still use sender avatars.
 - For chat messages, check the collapsed card for the sender avatar with Envelo's
   app badge, then expand it and confirm the sender name remains visible above the
   accumulated messages. The exact badge placement is controlled by Android/OEM.

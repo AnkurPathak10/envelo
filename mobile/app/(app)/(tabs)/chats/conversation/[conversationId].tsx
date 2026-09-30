@@ -5,18 +5,33 @@ import {
   useLocalSearchParams,
 } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
-import { Alert, AppState, StyleSheet, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Alert,
+  AppState,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 
 import { ChatHeader } from '@/components/chat/chat-header';
 import { ChatScreen } from '@/components/chat/chat-screen';
 import {
   clearConversationMessages,
   deleteConversation,
+  getConversations,
+  getGroupConversation,
+  type ConversationListItem,
+  type GroupDetail,
 } from '@/lib/api/conversations';
 import { useAuth } from '@/lib/auth/AuthContext';
+import { getCachedConversations } from '@/lib/cache/conversationCache';
 import { removeCachedMessageHistory } from '@/lib/cache/messageCache';
 import { useSocket } from '@/lib/socket/SocketContext';
 import { dismissChatNotifications } from '@/lib/push/notificationTray';
+import { messagingColors } from '@/constants/theme';
+import { useAppColorScheme } from '@/lib/theme/useAppColorScheme';
 
 function firstParam(value: string | string[] | undefined): string {
   return typeof value === 'string' ? value : (value?.[0] ?? '');
@@ -36,8 +51,49 @@ export default function ConversationScreen() {
     participantAvatarUrl?: string | string[];
     participantId?: string | string[];
     participantName?: string | string[];
+    conversationType?: string | string[];
+    groupName?: string | string[];
+    groupPhotoUrl?: string | string[];
   }>();
   const conversationId = firstParam(params.conversationId);
+  const scheme = useAppColorScheme();
+  const [resolvedConversation, setResolvedConversation] =
+    useState<ConversationListItem | null>(null);
+  const [identityError, setIdentityError] = useState<string | null>(null);
+  const [identityVersion, setIdentityVersion] = useState(0);
+  const hasRouteIdentity = Boolean(
+    firstParam(params.conversationType) || firstParam(params.participantId)
+  );
+  useEffect(() => {
+    if (hasRouteIdentity || !conversationId) return;
+    let active = true;
+    void getConversations()
+      .catch(async (error: unknown) => {
+        const cached = user?.id
+          ? await getCachedConversations(user.id).catch(() => null)
+          : null;
+        if (cached) return cached;
+        throw error;
+      })
+      .then((items) => {
+        if (!active) return;
+        const conversation = items.find((item) => item.id === conversationId);
+        if (!conversation) throw new Error('Conversation not found.');
+        setResolvedConversation(conversation);
+        setIdentityError(null);
+      })
+      .catch((error: unknown) => {
+        if (active)
+          setIdentityError(
+            error instanceof Error
+              ? error.message
+              : 'Unable to open conversation.'
+          );
+      });
+    return () => {
+      active = false;
+    };
+  }, [conversationId, hasRouteIdentity, identityVersion, user?.id]);
   useFocusEffect(
     useCallback(() => {
       if (!user?.id || !conversationId) return;
@@ -56,15 +112,48 @@ export default function ConversationScreen() {
     }, [conversationId, user?.id])
   );
   const initialClearedAt = firstParam(params.clearedAt).trim() || null;
-  const participantAvatarUrl = firstParam(params.participantAvatarUrl).trim();
-  const participantId = firstParam(params.participantId).trim();
-  const participantName =
-    firstParam(params.participantName).trim() || 'Conversation';
+  const isGroup =
+    resolvedConversation?.type === 'GROUP' ||
+    firstParam(params.conversationType) === 'GROUP';
+  const participantAvatarUrl = isGroup
+    ? resolvedConversation?.type === 'GROUP'
+      ? (resolvedConversation.photoUrl ?? '')
+      : firstParam(params.groupPhotoUrl).trim()
+    : resolvedConversation?.type === 'DIRECT'
+      ? (resolvedConversation.participant.avatarUrl ?? '')
+      : firstParam(params.participantAvatarUrl).trim();
+  const participantId = isGroup
+    ? conversationId
+    : resolvedConversation?.type === 'DIRECT'
+      ? resolvedConversation.participant.id
+      : firstParam(params.participantId).trim();
+  const participantName = isGroup
+    ? (resolvedConversation?.type === 'GROUP'
+        ? resolvedConversation.name
+        : firstParam(params.groupName).trim()) || 'Group'
+    : (resolvedConversation?.type === 'DIRECT'
+        ? resolvedConversation.participant.displayName
+        : firstParam(params.participantName).trim()) || 'Conversation';
+  const [groupMembers, setGroupMembers] = useState<GroupDetail['members']>([]);
   const [isBusy, setIsBusy] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [historyVersion, setHistoryVersion] = useState(0);
   const [clearedAt, setClearedAt] = useState<string | null>(initialClearedAt);
+
+  useEffect(() => {
+    if (!isGroup || !conversationId) return;
+    let active = true;
+    setGroupMembers([]);
+    void getGroupConversation(conversationId)
+      .then((group) => {
+        if (active) setGroupMembers(group.members);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [conversationId, isGroup]);
 
   const clearLocalConversationState = useCallback(async (): Promise<void> => {
     await Promise.allSettled([
@@ -176,36 +265,76 @@ export default function ConversationScreen() {
   return (
     <View style={styles.container}>
       <Stack.Screen options={{ headerShown: false }} />
-      <ChatHeader
-        avatarUrl={participantAvatarUrl || null}
-        isBusy={isBusy}
-        isSearchOpen={isSearchOpen}
-        name={participantName}
-        onBack={() => router.back()}
-        onClearChat={confirmClearChat}
-        onCloseSearch={() => {
-          setIsSearchOpen(false);
-          setSearchQuery('');
-        }}
-        onDeleteChat={confirmDeleteChat}
-        onOpenSearch={() => setIsSearchOpen(true)}
-        onSearchQueryChange={setSearchQuery}
-        participantId={participantId}
-        searchQuery={searchQuery}
-      />
-      <ChatScreen
-        conversationId={conversationId}
-        hiddenBefore={clearedAt}
-        isSearchOpen={isSearchOpen}
-        key={`${conversationId}:${historyVersion}`}
-        participantAvatarUrl={participantAvatarUrl || null}
-        participantName={participantName}
-        searchQuery={isSearchOpen ? searchQuery : ''}
-      />
+      {!hasRouteIdentity && !resolvedConversation ? (
+        <View style={styles.loading}>
+          {identityError ? (
+            <>
+              <Text style={{ color: messagingColors[scheme].error }}>
+                {identityError}
+              </Text>
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => {
+                  setIdentityError(null);
+                  setIdentityVersion((value) => value + 1);
+                }}
+              >
+                <Text style={{ color: messagingColors[scheme].accentPrimary }}>
+                  Try again
+                </Text>
+              </Pressable>
+            </>
+          ) : (
+            <ActivityIndicator color={messagingColors[scheme].accentPrimary} />
+          )}
+        </View>
+      ) : (
+        <>
+          <ChatHeader
+            avatarUrl={participantAvatarUrl || null}
+            isBusy={isBusy}
+            isSearchOpen={isSearchOpen}
+            name={participantName}
+            onBack={() => router.back()}
+            onClearChat={confirmClearChat}
+            onCloseSearch={() => {
+              setIsSearchOpen(false);
+              setSearchQuery('');
+            }}
+            onDeleteChat={confirmDeleteChat}
+            onOpenSearch={() => setIsSearchOpen(true)}
+            onOpenInfo={
+              isGroup
+                ? () =>
+                    router.push({
+                      pathname: '/(app)/(tabs)/chats/group-info/[groupId]',
+                      params: { groupId: conversationId },
+                    })
+                : undefined
+            }
+            onSearchQueryChange={setSearchQuery}
+            participantId={participantId}
+            searchQuery={searchQuery}
+            showConversationActions={!isGroup}
+          />
+          <ChatScreen
+            conversationType={isGroup ? 'GROUP' : 'DIRECT'}
+            conversationId={conversationId}
+            groupMembers={groupMembers}
+            hiddenBefore={clearedAt}
+            isSearchOpen={isSearchOpen}
+            key={`${conversationId}:${historyVersion}`}
+            participantAvatarUrl={participantAvatarUrl || null}
+            participantName={participantName}
+            searchQuery={isSearchOpen ? searchQuery : ''}
+          />
+        </>
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  loading: { alignItems: 'center', flex: 1, gap: 12, justifyContent: 'center' },
 });

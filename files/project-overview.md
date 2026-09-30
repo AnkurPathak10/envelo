@@ -50,6 +50,8 @@ producing a genuinely usable 1:1 messaging app.
 - Delivery and read receipts (sent / delivered / read states,
   WhatsApp-style ticks)
 - Conversation list with most recent message preview
+- Group-conversation backend foundation (Feature 26); socket delivery
+  and mobile group UI are separate follow-up features
 
 ### Media
 
@@ -61,6 +63,7 @@ producing a genuinely usable 1:1 messaging app.
 ### In Scope
 
 - 1:1 real-time messaging
+- Group chat in staged implementation (backend first, then socket and UI)
 - Custom JWT authentication
 - Message delivery/read receipts
 - Image sharing in chat
@@ -69,7 +72,6 @@ producing a genuinely usable 1:1 messaging app.
 
 ### Out of Scope (v1)
 
-- Group chats (planned for a later phase)
 - Voice/video calls
 - End-to-end encryption
 - Web client

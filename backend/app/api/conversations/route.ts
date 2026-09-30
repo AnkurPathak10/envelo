@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
+import { ConversationType } from "@prisma/client";
 
 import {
   conversationListSelect,
   hasOtherParticipant,
+  isActiveGroupMember,
   isConversationVisible,
   toConversationListItem,
 } from "@/lib/conversations";
@@ -23,10 +25,11 @@ export async function GET(request: NextRequest) {
     select: conversationListSelect(userId),
   });
 
-  const visibleConversations = conversations.filter(
-    (conversation) =>
-      hasOtherParticipant(conversation, userId) &&
-      isConversationVisible(conversation, userId),
+  const visibleConversations = conversations.filter((conversation) =>
+    conversation.type === ConversationType.GROUP
+      ? isActiveGroupMember(conversation, userId)
+      : hasOtherParticipant(conversation, userId) &&
+        isConversationVisible(conversation, userId),
   );
   const unreadCounts = await Promise.all(
     visibleConversations.map((conversation) => {

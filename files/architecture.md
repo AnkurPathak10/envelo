@@ -32,8 +32,9 @@
 
 ## Storage Model
 
-- **Database (Neon Postgres via Prisma)**: users, conversations,
-  conversation participants, messages, message status
+- **Database (Neon Postgres via Prisma)**: users, direct/group conversations,
+  conversation participants with group roles, active/left membership and
+  per-member mute state, messages, message status
   (sent/delivered/read), refresh tokens (stored hashed), and directional
   `Friendship` rows (`PENDING`, `ACCEPTED`, `REJECTED`), and per-device
   `PushToken` rows. A rejected
@@ -61,6 +62,17 @@
   socket server before any read/write.
 - A new direct conversation requires an accepted friendship in either
   direction. Existing conversations remain accessible without a new gate.
+- Group creation and member additions require an accepted friendship
+  between the acting user and each added user. Only active group members
+  may view group details; admin-only changes are checked server-side.
+  A nonempty group keeps an active admin: the sole admin must promote
+  someone before leaving. A sole-member admin leaving deletes the group;
+  only a group's sole admin may dissolve a nonempty group.
+- Group socket sends require active membership. New messages reach every
+  active member's user room, including muted members while online; mute
+  suppresses only push notifications. Group messages have no per-member
+  delivery/read status rows. Their live inbox preview prefixes the sender's
+  display name, while the persisted message body stays unchanged.
 - Friend request changes are persisted by the Next.js backend before it
   calls the socket server's HMAC-authenticated internal event bridge;
   the socket server emits `friend:request` to each affected user's room.
@@ -90,6 +102,7 @@
 4. No Redis and no multi-instance socket server scaling is
    introduced unless a specific, demonstrated need arises — v1 runs
    a single socket server instance.
-5. Group chat, calls, and end-to-end encryption are explicitly out
-   of scope until `project-overview.md` is updated to bring them
-   into scope.
+5. Group chat is introduced in stages: Feature 26 supplies the REST
+   and schema foundation, Feature 27 supplies socket messaging, and
+   Features 28–29 supply mobile UI. Calls and end-to-end encryption
+   remain out of scope until separately planned.
