@@ -75,7 +75,8 @@ interface ChatScreenProps {
 
 const EMPTY_GROUP_MEMBERS: GroupDetail['members'] = [];
 
-type InitialHistoryState = 'loading' | 'loaded' | 'error' | 'not-found';
+type InitialHistoryState =
+  'checking-cache' | 'loading' | 'loaded' | 'error' | 'not-found';
 
 function isAfterConversationCutoff(
   createdAt: string,
@@ -176,7 +177,7 @@ export function ChatScreen({
   } = useSocket();
   const [messages, setMessages] = useState<RenderableTextMessage[]>([]);
   const [initialState, setInitialState] =
-    useState<InitialHistoryState>('loading');
+    useState<InitialHistoryState>('checking-cache');
   const [initialError, setInitialError] = useState<string | null>(null);
   const [isOffline, setIsOffline] = useState(false);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
@@ -191,6 +192,7 @@ export function ChatScreen({
   const [isMediaBusy, setIsMediaBusy] = useState(false);
   const [composerHeight, setComposerHeight] = useState(84);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
+  // Layout settling is not a fetch: never show a second spinner for it.
   const [isInitialPositionReady, setIsInitialPositionReady] = useState(false);
   const [selectedImage, setSelectedImage] = useState<{
     conversationId: string;
@@ -216,6 +218,7 @@ export function ChatScreen({
   const isScrollFlushScheduled = useRef(false);
   const observedConnectionEpoch = useRef(connectionEpoch);
   const loadedConversationId = useRef<string | null>(null);
+  const refreshHistoryRef = useRef<(() => Promise<void>) | null>(null);
   const pendingMessagesRef = useRef(pendingMessages);
   pendingMessagesRef.current = pendingMessages;
   const scheme = useAppColorScheme();
@@ -367,7 +370,7 @@ export function ChatScreen({
     let isActive = true;
     const isInitialLoad = loadedConversationId.current !== conversationId;
     if (isInitialLoad) {
-      setInitialState('loading');
+      setInitialState('checking-cache');
       setInitialError(null);
       setIsOffline(false);
       setNextCursor(null);
@@ -376,9 +379,9 @@ export function ChatScreen({
       );
     }
 
-    const loadHistory = async (): Promise<void> => {
+    const loadHistory = async (background = false): Promise<void> => {
       const cachedPromise =
-        isInitialLoad && user?.id
+        !background && isInitialLoad && user?.id
           ? getCachedMessageHistory(user.id, conversationId).catch(() => null)
           : Promise.resolve(null);
       const livePromise = getMessageHistory(conversationId).then(
@@ -408,6 +411,13 @@ export function ChatScreen({
         loadedConversationId.current = conversationId;
         if (isInitialLoad) requestScrollToEnd(false, true);
         setInitialState('loaded');
+      } else if (
+        isActive &&
+        !background &&
+        loadedConversationId.current !== conversationId
+      ) {
+        // Never flash a spinner before AsyncStorage has ruled out a cache hit.
+        setInitialState('loading');
       }
 
       try {
@@ -428,6 +438,7 @@ export function ChatScreen({
           ).catch(() => undefined);
         }
         if (!isActive) return;
+        const isFirstData = loadedConversationId.current !== conversationId;
         if (!isGroup) acknowledgeDeliveredMessages(visiblePage.messages);
         setMessages((current) =>
           mergeTextMessages(
@@ -439,17 +450,19 @@ export function ChatScreen({
             normalizeGroupStatuses(visiblePage.messages)
           )
         );
-        setNextCursor(
+        setNextCursor((current) =>
           visiblePage.nextCursor === null
             ? null
-            : visibleCached
-              ? visibleCached.nextCursor
-              : visiblePage.nextCursor
+            : background && !isFirstData
+              ? current
+              : visibleCached
+                ? visibleCached.nextCursor
+                : visiblePage.nextCursor
         );
         loadedConversationId.current = conversationId;
         setInitialError(null);
         setIsOffline(false);
-        if (isInitialLoad) requestScrollToEnd(false, true);
+        if (isFirstData) requestScrollToEnd(false, true);
         setInitialState('loaded');
       } catch (error: unknown) {
         if (!isActive) return;
@@ -470,25 +483,38 @@ export function ChatScreen({
         );
         if (isConnectivityError(error)) {
           setIsOffline(true);
-          if (visibleCached || hasPendingMessages || !isInitialLoad) {
+          if (
+            visibleCached ||
+            hasPendingMessages ||
+            loadedConversationId.current === conversationId
+          ) {
             loadedConversationId.current = conversationId;
             setInitialState('loaded');
             return;
           }
-        } else if (!isInitialLoad) {
+        }
+        if (background || !isInitialLoad) {
           return;
         }
 
-        loadedConversationId.current = null;
+        // Preserve the rendered-data latch even when exposing a genuine HTTP
+        // error: retrying a cached chat must not bring the loading spinner back.
         setInitialError(historyErrorMessage(error));
         setInitialState('error');
       }
     };
 
+    // A socket catch-up must not cancel/restart cache restoration or the first
+    // REST request. Both fetch paths merge through the same durable-ID helper.
+    const refreshHistory = () => loadHistory(true);
+    refreshHistoryRef.current = refreshHistory;
     void loadHistory();
 
     return () => {
       isActive = false;
+      if (refreshHistoryRef.current === refreshHistory) {
+        refreshHistoryRef.current = null;
+      }
     };
   }, [
     acknowledgeDeliveredMessages,
@@ -505,7 +531,7 @@ export function ChatScreen({
     if (observedConnectionEpoch.current === connectionEpoch) return;
 
     observedConnectionEpoch.current = connectionEpoch;
-    setReloadVersion((version) => version + 1);
+    void refreshHistoryRef.current?.();
   }, [connectionEpoch]);
 
   useEffect(
@@ -518,7 +544,10 @@ export function ChatScreen({
         setMessages((current) =>
           mergeTextMessages(current, [withInitialStatus(message, user?.id)])
         );
-        requestScrollToEnd(true);
+        const isFirstData = loadedConversationId.current !== conversationId;
+        loadedConversationId.current = conversationId;
+        setInitialState('loaded');
+        requestScrollToEnd(true, isFirstData);
       }),
     [
       conversationId,
@@ -559,9 +588,14 @@ export function ChatScreen({
       )
     );
     if (conversationPendingMessages.length === 0) return;
+    loadedConversationId.current = conversationId;
     requestScrollToEnd(false, true);
     setInitialState((current) =>
-      current === 'loading' || current === 'error' ? 'loaded' : current
+      current === 'checking-cache' ||
+      current === 'loading' ||
+      current === 'error'
+        ? 'loaded'
+        : current
     );
   }, [
     conversationId,
@@ -1001,6 +1035,10 @@ export function ChatScreen({
     setReloadVersion((version) => version + 1);
   }, []);
 
+  if (initialState === 'checking-cache') {
+    return <View style={styles.container} />;
+  }
+
   if (initialState === 'loading') {
     return (
       <View style={styles.centeredState}>
@@ -1215,11 +1253,6 @@ export function ChatScreen({
           </SafeAreaView>
         </KeyboardStickyView>
       ) : null}
-      {!isInitialPositionReady ? (
-        <View pointerEvents="none" style={styles.positioningOverlay}>
-          <ActivityIndicator color={c.accentPrimary} size="large" />
-        </View>
-      ) : null}
     </View>
   );
 }
@@ -1301,17 +1334,6 @@ const createStyles = (c: typeof colors.light) =>
     searchSummary: { alignItems: 'center', paddingVertical: 10 },
     searchSummaryText: { color: c.textMuted, fontSize: 13 },
     positioningContent: { opacity: 0 },
-    positioningOverlay: {
-      alignItems: 'center',
-      backgroundColor: c.bgBase,
-      bottom: 0,
-      justifyContent: 'center',
-      left: 0,
-      position: 'absolute',
-      right: 0,
-      top: 0,
-      zIndex: 20,
-    },
     stateText: {
       color: c.textMuted,
       fontSize: 15,
