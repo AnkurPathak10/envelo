@@ -18,6 +18,7 @@ import { useAuth } from '@/lib/auth/AuthContext';
 import { pickCompressedImage, uploadImage } from '@/lib/media/upload';
 import { useFriendRequests } from '@/lib/friends/FriendRequestsContext';
 import { useAppColorScheme } from '@/lib/theme/useAppColorScheme';
+import { useFloatingTabLayout } from '@/lib/navigation/floatingTabs';
 
 function profileErrorMessage(error: unknown): string {
   if (error instanceof ApiError || error instanceof Error) return error.message;
@@ -32,6 +33,7 @@ export default function ProfileScreen() {
   const scheme = useAppColorScheme();
   const c = colors[scheme];
   const styles = createStyles(c);
+  const floatingTabs = useFloatingTabLayout();
 
   if (!user) return null;
 
@@ -54,7 +56,10 @@ export default function ProfileScreen() {
   };
 
   return (
-    <SafeAreaView edges={['top']} style={styles.screen}>
+    <SafeAreaView
+      edges={['top']}
+      style={[styles.screen, { paddingBottom: floatingTabs.contentBottom }]}
+    >
       <Text style={styles.title}>Profile</Text>
       <View style={styles.container}>
         <ConversationAvatar

@@ -100,9 +100,10 @@ const createStyles = (c: typeof colors.light) =>
       alignItems: 'center',
       flexDirection: 'row',
       gap: spacing.md,
-      minHeight: spacing.xl * 2 + spacing.sm,
+      minHeight: 70,
       paddingHorizontal: spacing.md,
-      paddingVertical: spacing.md,
+      // 16 -> 11.2 on each edge: 30% less space between adjacent chats.
+      paddingVertical: spacing.md * 0.7,
     },
     containerPressed: { backgroundColor: c.bgSurface },
     content: { flex: 1, gap: spacing.xs, minWidth: 0 },

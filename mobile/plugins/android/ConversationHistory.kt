@@ -5,7 +5,8 @@ internal data class ConversationMessage(
   val text: String,
   val timestamp: Long,
   val senderName: String = "",
-  val senderId: String = ""
+  val senderId: String = "",
+  val senderAvatarUrl: String = ""
 )
 
 internal object ConversationHistory {

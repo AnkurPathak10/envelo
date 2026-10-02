@@ -22,6 +22,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
@@ -76,7 +79,8 @@ private class ConversationPresentationDelegate(context: Context) : ExpoPresentat
     val entries = (0 until history.length()).mapNotNull { index ->
       history.optJSONObject(index)?.let {
         ConversationMessage(it.optString("id"), it.optString("text"), it.optLong("time"),
-          it.optString("senderName"), it.optString("senderId"))
+          it.optString("senderName"), it.optString("senderId"),
+          if (it.isNull("senderAvatarUrl")) "" else it.optString("senderAvatarUrl"))
       }
     }
     val messageId = data.optString("messageId").ifEmpty { data.optString("requestId") }
@@ -86,15 +90,27 @@ private class ConversationPresentationDelegate(context: Context) : ExpoPresentat
       data.optString("groupName").takeIf { it.isNotBlank() }
     val senderName = data.optString("senderName").ifBlank { request.content.title ?: "Someone" }
     val messageText = data.optString("messageText").ifBlank { request.content.text.orEmpty() }
+    val senderId = data.optString("senderId")
+    val senderAvatarUrl = if (data.isNull("senderAvatarUrl")) "" else data.optString("senderAvatarUrl")
     val retained = ConversationHistory.append(entries, ConversationMessage(messageId, messageText, sentAt,
-      senderName, data.optString("senderId")))
+      senderName, senderId, senderAvatarUrl))
     if (retained === entries) return
 
     val name = groupName ?: senderName
     val avatar = NotificationAvatar.load(
       if (groupName != null) data.optString("groupPhotoUrl") else data.optString("senderAvatarUrl"), name)
-    val sender = Person.Builder().setName(senderName).setKey(data.optString("senderId"))
-      .setIcon(IconCompat.createWithBitmap(avatar)).build()
+    // The shortcut/large icon belongs to the group, but MessagingStyle authors
+    // must use their own avatars (including earlier authors after process death).
+    val senderAvatar = if (groupName == null) avatar else NotificationAvatar.load(senderAvatarUrl, senderName)
+    val sender = Person.Builder().setName(senderName).setKey(senderId)
+      .setIcon(IconCompat.createWithBitmap(senderAvatar)).build()
+    val authors = if (groupName == null) emptyMap() else coroutineScope {
+      retained.associateBy { it.senderId }.values.map { entry -> async {
+        entry.senderId to if (entry.senderId == senderId) sender else
+          Person.Builder().setName(entry.senderName).setKey(entry.senderId)
+            .setIcon(IconCompat.createWithBitmap(NotificationAvatar.load(entry.senderAvatarUrl, entry.senderName))).build()
+      } }.awaitAll().toMap()
+    }
     val me = Person.Builder().setName("You").setKey(data.optString("recipientUserId")).build()
     // Android R+ takes the heading from the linked shortcut. The title also
     // covers older/OEM layouts, where MessagingStyle ignores setContentTitle.
@@ -102,9 +118,7 @@ private class ConversationPresentationDelegate(context: Context) : ExpoPresentat
       .setConversationTitle(name)
       .setGroupConversation(groupName != null)
     retained.forEach { entry ->
-      val author = if (groupName == null || entry.senderId == data.optString("senderId")) sender else
-        Person.Builder().setName(entry.senderName).setKey(entry.senderId)
-          .setIcon(IconCompat.createWithBitmap(avatar)).build()
+      val author = if (groupName == null) sender else authors.getValue(entry.senderId)
       style.addMessage(entry.text, entry.timestamp, author)
     }
     val shortcut = runCatching {
@@ -130,6 +144,7 @@ private class ConversationPresentationDelegate(context: Context) : ExpoPresentat
         putString(HISTORY, JSONArray(retained.map {
           JSONObject().put("id", it.id).put("text", it.text).put("time", it.timestamp)
             .put("senderName", it.senderName).put("senderId", it.senderId)
+            .put("senderAvatarUrl", it.senderAvatarUrl)
         }).toString())
       })
     if (shortcut != null) builder.setShortcutInfo(shortcut)

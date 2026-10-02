@@ -14,7 +14,12 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import {
+  SafeAreaView,
+  useSafeAreaInsets,
+} from 'react-native-safe-area-context';
+import { ThemePicker, themeLabels } from '@/components/theme/theme-toggle';
+import { useAppTheme } from '@/lib/theme/ThemeContext';
 
 import { ConversationRow } from '@/components/conversations/conversation-row';
 import { EmptyConversationList } from '@/components/conversations/empty-conversation-list';
@@ -54,6 +59,7 @@ import {
   useSocket,
 } from '@/lib/socket/SocketContext';
 import { useAppColorScheme } from '@/lib/theme/useAppColorScheme';
+import { useFloatingTabLayout } from '@/lib/navigation/floatingTabs';
 
 function getErrorMessage(error: unknown): string {
   return error instanceof ApiError
@@ -126,6 +132,7 @@ export default function HomeScreen() {
     acknowledgeDeliveredMessages,
     connectionEpoch,
     discardConversationQueue,
+    markConversationRead,
     subscribeToConversationVisibility,
     subscribeToMessageStatuses,
     subscribeToNewMessages,
@@ -140,6 +147,14 @@ export default function HomeScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [reloadVersion, setReloadVersion] = useState(0);
   const [composeMenuOpen, setComposeMenuOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [themePickerOpen, setThemePickerOpen] = useState(false);
+  const showThemeAfterDismiss = useRef(false);
+  const [isReadingAll, setIsReadingAll] = useState(false);
+  const [menuError, setMenuError] = useState<string | null>(null);
+  const { preference } = useAppTheme();
+  const insets = useSafeAreaInsets();
+  const floatingTabs = useFloatingTabLayout();
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<SearchUser[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -238,9 +253,52 @@ export default function HomeScreen() {
 
   const openNewGroup = useCallback(() => {
     setComposeMenuOpen(false);
+    setMenuOpen(false);
     resetGroupCreation();
     router.push('/(app)/(tabs)/chats/new-group' as Href);
   }, [resetGroupCreation]);
+
+  const readAll = async () => {
+    if (isReadingAll) return;
+    setMenuOpen(false);
+    setIsReadingAll(true);
+    setMenuError(null);
+    const unread = conversationsRef.current.filter(
+      (item) => item.unreadCount > 0 && item.lastMessage
+    );
+    const results = await Promise.allSettled(
+      unread.map(async (item) => {
+        const result = await markConversationRead({
+          conversationId: item.id,
+          upToMessageId: item.lastMessage!.id,
+        });
+        if (!result.success) throw new Error(result.error);
+        return item;
+      })
+    );
+    if (!isMounted.current) return;
+    const readById = new Map(
+      results.flatMap((result) =>
+        result.status === 'fulfilled'
+          ? [[result.value.id, result.value] as const]
+          : []
+      )
+    );
+    updateLiveConversations((current) =>
+      current.map((item) => {
+        const read = readById.get(item.id);
+        // A message arriving during the acknowledgement must remain unread.
+        return read && read.lastMessage?.id === item.lastMessage?.id
+          ? { ...item, unreadCount: 0 }
+          : item;
+      })
+    );
+    if (results.some((result) => result.status === 'rejected'))
+      setMenuError(
+        'Some chats could not be marked read. Check your connection and try again.'
+      );
+    setIsReadingAll(false);
+  };
 
   const openConversation = useCallback(
     (conversation: ConversationListItem) => {
@@ -642,6 +700,15 @@ export default function HomeScreen() {
       <View style={styles.header}>
         <View style={styles.headerTopRow}>
           <Text style={styles.title}>Envelo</Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Chat options"
+            accessibilityState={{ expanded: menuOpen }}
+            onPress={() => setMenuOpen(true)}
+            style={styles.iconButton}
+          >
+            <MaterialIcons name="more-vert" color={c.textPrimary} size={26} />
+          </Pressable>
         </View>
         <View style={styles.searchBox}>
           <MaterialIcons color={c.textMuted} name="search" size={21} />
@@ -670,6 +737,127 @@ export default function HomeScreen() {
           ) : null}
         </View>
       </View>
+
+      {menuError ? (
+        <Text
+          accessibilityRole="alert"
+          style={[styles.errorText, { paddingHorizontal: spacing.md }]}
+        >
+          {menuError}
+        </Text>
+      ) : null}
+      <Modal
+        transparent
+        animationType="fade"
+        visible={menuOpen}
+        onRequestClose={() => setMenuOpen(false)}
+        onDismiss={() => {
+          if (showThemeAfterDismiss.current) {
+            showThemeAfterDismiss.current = false;
+            setThemePickerOpen(true);
+          }
+        }}
+      >
+        <View style={{ flex: 1 }}>
+          <Pressable
+            accessibilityLabel="Close chat options"
+            onPress={() => setMenuOpen(false)}
+            style={[styles.menuBackdrop, StyleSheet.absoluteFillObject]}
+          />
+          <View
+            accessibilityViewIsModal
+            style={[styles.menuCard, { top: insets.top + 62 }]}
+          >
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => {
+                // iOS cannot present a second modal while the first dismisses.
+                if (Platform.OS === 'ios') showThemeAfterDismiss.current = true;
+                else setThemePickerOpen(true);
+                setMenuOpen(false);
+              }}
+              style={({ pressed }) => [
+                styles.menuActionRow,
+                pressed && styles.menuActionPressed,
+              ]}
+            >
+              <MaterialIcons
+                name={
+                  preference === 'system'
+                    ? 'brightness-auto'
+                    : preference === 'dark'
+                      ? 'dark-mode'
+                      : 'light-mode'
+                }
+                size={22}
+                color={c.accentPrimary}
+              />
+              <Text style={styles.menuItemText}>
+                {themeLabels[preference]} mode
+              </Text>
+              <MaterialIcons name="expand-more" size={20} color={c.textMuted} />
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              onPress={openNewGroup}
+              style={({ pressed }) => [
+                styles.menuActionRow,
+                pressed && styles.menuActionPressed,
+              ]}
+            >
+              <MaterialIcons
+                name="group-add"
+                size={22}
+                color={c.accentPrimary}
+              />
+              <Text style={styles.menuItemText}>New group</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityState={{ disabled: true }}
+              disabled
+              style={styles.menuActionRow}
+            >
+              <MaterialIcons
+                name="bookmark-outline"
+                size={22}
+                color={c.textMuted}
+              />
+              <View>
+                <Text style={[styles.menuItemText, { color: c.textMuted }]}>
+                  Saved messages
+                </Text>
+                <Text style={{ color: c.textMuted, fontSize: 11 }}>
+                  Coming soon
+                </Text>
+              </View>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityState={{ disabled: isReadingAll }}
+              disabled={isReadingAll}
+              onPress={() => void readAll()}
+              style={({ pressed }) => [
+                styles.menuActionRow,
+                pressed && styles.menuActionPressed,
+              ]}
+            >
+              <MaterialIcons
+                name="done-all"
+                size={22}
+                color={c.accentPrimary}
+              />
+              <Text style={styles.menuItemText}>
+                {isReadingAll ? 'Marking read…' : 'Read all'}
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+      <ThemePicker
+        visible={themePickerOpen}
+        onClose={() => setThemePickerOpen(false)}
+      />
 
       {isOffline && !errorMessage ? (
         <View style={styles.offlineNotice}>
@@ -708,9 +896,10 @@ export default function HomeScreen() {
           ) : null}
 
           <FlatList
-            contentContainerStyle={
-              searchResults.length === 0 ? styles.searchEmptyList : undefined
-            }
+            contentContainerStyle={[
+              searchResults.length === 0 && styles.searchEmptyList,
+              { paddingBottom: floatingTabs.composeBottom + 72 },
+            ]}
             data={searchResults}
             keyboardShouldPersistTaps="handled"
             keyExtractor={(result) => result.id}
@@ -747,9 +936,10 @@ export default function HomeScreen() {
         </View>
       ) : (
         <FlatList
-          contentContainerStyle={
-            conversations.length === 0 ? styles.emptyList : undefined
-          }
+          contentContainerStyle={[
+            conversations.length === 0 && styles.emptyList,
+            { paddingBottom: floatingTabs.composeBottom + 72 },
+          ]}
           data={conversations}
           keyExtractor={(conversation) => conversation.id}
           ListEmptyComponent={
@@ -775,6 +965,7 @@ export default function HomeScreen() {
         onPress={() => setComposeMenuOpen(true)}
         style={({ pressed }) => [
           styles.composeButton,
+          { bottom: floatingTabs.composeBottom },
           pressed && styles.headerButtonPressed,
         ]}
       >
@@ -793,7 +984,10 @@ export default function HomeScreen() {
         >
           <Pressable
             onPress={(event) => event.stopPropagation()}
-            style={styles.composeMenu}
+            style={[
+              styles.composeMenu,
+              { bottom: floatingTabs.composeBottom + 64 },
+            ]}
           >
             <Pressable
               accessibilityRole="button"

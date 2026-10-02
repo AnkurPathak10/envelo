@@ -1,25 +1,27 @@
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ThemeToggle } from '@/components/theme/theme-toggle';
 import { messagingColors as colors, spacing } from '@/constants/theme';
 import { useAuth } from '@/lib/auth/AuthContext';
 import { useAppColorScheme } from '@/lib/theme/useAppColorScheme';
+import { useFloatingTabLayout } from '@/lib/navigation/floatingTabs';
 
 export default function SettingsScreen() {
   const scheme = useAppColorScheme();
   const c = colors[scheme];
   const { signOut } = useAuth();
   const styles = createStyles(c);
+  const floatingTabs = useFloatingTabLayout();
 
   return (
-    <SafeAreaView edges={['top']} style={styles.screen}>
+    <SafeAreaView
+      edges={['top']}
+      style={[styles.screen, { paddingBottom: floatingTabs.contentBottom }]}
+    >
       <Text style={styles.title}>Settings</Text>
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>Appearance</Text>
-        <ThemeToggle />
-      </View>
+      <ThemeToggle />
       <Pressable
         accessibilityRole="button"
         onPress={() => void signOut()}
@@ -51,12 +53,6 @@ const createStyles = (c: typeof colors.light) =>
     },
     pressed: { backgroundColor: c.bgSurface },
     screen: { backgroundColor: c.bgBase, flex: 1 },
-    section: {
-      gap: spacing.sm,
-      paddingHorizontal: spacing.lg,
-      paddingVertical: spacing.lg,
-    },
-    sectionTitle: { color: c.textMuted, fontSize: 14, fontWeight: '600' },
     title: {
       color: c.textPrimary,
       fontSize: 28,

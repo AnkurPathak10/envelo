@@ -18,6 +18,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ConversationAvatar } from '@/components/conversations/conversation-avatar';
 import { ImageViewerModal } from '@/components/media/image-viewer-modal';
+import { ActionSheet, type SheetAction } from '@/components/ui/action-sheet';
 import { messagingColors as colors, radius, spacing } from '@/constants/theme';
 import {
   dissolveGroup,
@@ -56,6 +57,8 @@ export default function GroupInfoScreen() {
   const [media, setMedia] = useState<{ id: string; url: string }[]>([]);
   const [mediaLoading, setMediaLoading] = useState(false);
   const [viewerUrl, setViewerUrl] = useState<string | null>(null);
+  const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
+  const [removingMember, setRemovingMember] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -174,49 +177,9 @@ export default function GroupInfoScreen() {
   };
 
   const showMemberActions = (member: GroupDetail['members'][number]) => {
-    if (!group) return;
-    const adminCount = group.members.filter(
-      (item) => item.role === 'ADMIN'
-    ).length;
-    const options: {
-      text: string;
-      style?: 'cancel' | 'destructive';
-      onPress?: () => void;
-    }[] = [{ text: 'Cancel', style: 'cancel' }];
-    if (member.role === 'MEMBER') {
-      options.push({
-        text: 'Promote to admin',
-        onPress: () =>
-          run(() => setGroupMemberRole(groupId, member.id, 'ADMIN')),
-      });
-    } else if (adminCount > 1) {
-      options.push({
-        text: 'Demote from admin',
-        onPress: () =>
-          run(() => setGroupMemberRole(groupId, member.id, 'MEMBER')),
-      });
-    }
-    options.push({
-      text: 'Remove from group',
-      style: 'destructive',
-      onPress: () =>
-        Alert.alert(
-          'Remove member?',
-          `${member.displayName} will lose access to this group.`,
-          [
-            { text: 'Cancel', style: 'cancel' },
-            {
-              text: 'Remove',
-              style: 'destructive',
-              onPress: () =>
-                run(async () => {
-                  await removeGroupMember(groupId, member.id);
-                }),
-            },
-          ]
-        ),
-    });
-    Alert.alert(member.displayName, undefined, options);
+    if (busy) return;
+    setSelectedMemberId(member.id);
+    setRemovingMember(false);
   };
 
   const isAdmin =
@@ -226,6 +189,58 @@ export default function GroupInfoScreen() {
   const soleAdmin =
     isAdmin &&
     group?.members.filter((member) => member.role === 'ADMIN').length === 1;
+  const selectedMember = group?.members.find(
+    (member) => member.id === selectedMemberId
+  );
+  const closeMemberActions = () => {
+    setSelectedMemberId(null);
+    setRemovingMember(false);
+  };
+  const memberActions: SheetAction[] = [];
+  if (selectedMember) {
+    if (removingMember) {
+      memberActions.push({
+        label: 'Remove from group',
+        icon: 'person-remove',
+        destructive: true,
+        onPress: () => {
+          closeMemberActions();
+          run(async () => {
+            await removeGroupMember(groupId, selectedMember.id);
+          });
+        },
+      });
+    } else {
+      if (selectedMember.role === 'MEMBER' || !soleAdmin) {
+        const promote = selectedMember.role === 'MEMBER';
+        memberActions.push({
+          label: promote ? 'Promote to admin' : 'Demote from admin',
+          icon: promote ? 'admin-panel-settings' : 'person-outline',
+          onPress: () => {
+            closeMemberActions();
+            run(() =>
+              setGroupMemberRole(
+                groupId,
+                selectedMember.id,
+                promote ? 'ADMIN' : 'MEMBER'
+              )
+            );
+          },
+        });
+      }
+      memberActions.push({
+        label: 'Remove from group',
+        icon: 'person-remove',
+        destructive: true,
+        onPress: () => setRemovingMember(true),
+      });
+    }
+    memberActions.push({
+      label: 'Cancel',
+      icon: 'close',
+      onPress: closeMemberActions,
+    });
+  }
 
   return (
     <SafeAreaView edges={['bottom']} style={styles.screen}>
@@ -473,6 +488,35 @@ export default function GroupInfoScreen() {
         imageUrl={viewerUrl ?? ''}
         onClose={() => setViewerUrl(null)}
         visible={viewerUrl !== null}
+      />
+      <ActionSheet
+        visible={Boolean(
+          selectedMember && isAdmin && selectedMember.id !== user?.id
+        )}
+        onClose={closeMemberActions}
+        title={
+          removingMember
+            ? `Remove ${selectedMember?.displayName}?`
+            : (selectedMember?.displayName ?? 'Member')
+        }
+        description={
+          removingMember
+            ? 'They will lose access to this group and its messages.'
+            : selectedMember?.role === 'ADMIN'
+              ? 'Group admin'
+              : 'Group member'
+        }
+        header={
+          selectedMember ? (
+            <ConversationAvatar
+              avatarUrl={selectedMember.avatarUrl}
+              name={selectedMember.displayName}
+              userId={selectedMember.id}
+              size={48}
+            />
+          ) : undefined
+        }
+        actions={memberActions}
       />
     </SafeAreaView>
   );

@@ -59,7 +59,10 @@ is disabled so Google Play Services does not bypass the custom renderer.
   a sender without one. Expanding either card must never show an enlarged photo.
 - Send from two members of the same group: expect one group card headed by the
   group name, with the group photo (or group initials), and each expanded message
-  labeled with its own sender. Direct-chat cards should still use sender avatars.
+  labeled with its own sender and that sender's profile image, not the group photo.
+  Sender avatar URLs are retained in card history across process restarts. Entries
+  from an old APK without an avatar URL fall back to author initials; clear old
+  notifications before verifying the new build. Direct-chat cards still use sender avatars.
 - For chat messages, check the collapsed card for the sender avatar with Envelo's
   app badge, then expand it and confirm the sender name remains visible above the
   accumulated messages. The exact badge placement is controlled by Android/OEM.
