@@ -61,7 +61,7 @@ interface CallContextValue {
   minimize: () => void;
   restore: () => void;
   sendMessage: () => void;
-  dismiss: () => void;
+  dismiss: (navigate?: boolean) => void;
   sync: () => Promise<void>;
 }
 const Context = createContext<CallContextValue | null>(null);
@@ -146,12 +146,15 @@ export function CallProvider({ children }: PropsWithChildren) {
       },
     });
   }, []);
-  const dismiss = useCallback(() => {
-    if (current.current?.phase !== 'ended') return;
-    if (!current.current.guest) void openChat();
-    put(null);
-    setError(null);
-  }, [openChat, put]);
+  const dismiss = useCallback(
+    (navigate = true) => {
+      if (current.current?.phase !== 'ended') return;
+      if (navigate && !current.current.guest) void openChat();
+      put(null);
+      setError(null);
+    },
+    [openChat, put]
+  );
   const join = useCallback(
     async (credentials: CallCredentials) => {
       if (joining.current === credentials.call.id || engine.current) return;
@@ -587,7 +590,7 @@ export function CallProvider({ children }: PropsWithChildren) {
   useEffect(() => {
     if (active?.phase !== 'ended') return;
     const timer = setTimeout(() => {
-      dismiss();
+      dismiss(false);
     }, 2500);
     return () => clearTimeout(timer);
   }, [active?.phase, dismiss]);

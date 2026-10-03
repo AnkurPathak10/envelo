@@ -108,8 +108,8 @@ export async function startCall(conversationId: string, userId: string) {
       callee,
     };
   } catch (error) {
-    await prisma.callLog.update({
-      where: { id: call.id },
+    await prisma.callLog.updateMany({
+      where: { id: call.id, status: "RINGING" },
       data: { status: "DECLINED", endedAt: new Date() },
     });
     await revokeCallParticipants(meetingId, call.id).catch(() =>
@@ -136,13 +136,24 @@ export async function acceptCall(callId: string, userId: string) {
     detail.members.find((u) => u.id === userId)!,
   );
   if (Date.now() - call.startedAt.getTime() >= 45_000) {
-    await revokeCallParticipants(detail.meetingId!, call.id);
+    await revokeCallParticipants(detail.meetingId!, call.id, userId);
     throw new CallError("Call is no longer ringing", 409);
   }
-  const updated = await prisma.callLog.update({
-    where: { id: call.id },
+  const { count } = await prisma.callLog.updateMany({
+    where: { id: call.id, status: "RINGING" },
     data: { status: "ONGOING", connectedAt: new Date() },
   });
+  if (count === 0) {
+    await revokeCallParticipants(detail.meetingId!, call.id, userId);
+    throw new CallError("Call is no longer ringing", 409);
+  }
+  const updated = await prisma.callLog.findUniqueOrThrow({
+    where: { id: call.id },
+  });
+  if (updated.status !== "ONGOING") {
+    await revokeCallParticipants(detail.meetingId!, call.id, userId);
+    throw new CallError("Call has ended", 409);
+  }
   return {
     call: callHistoryItem(updated),
     meetingId: detail.meetingId!,
@@ -177,20 +188,26 @@ export async function finishCall(
         Date.now() - call.startedAt.getTime() < 45_000))
   )
     throw new CallError("Call has not timed out", 409);
-  const updated = ACTIVE_CALL_STATUSES.includes(call.status)
-    ? await prisma.callLog.update({
-        where: { id: callId },
-        data: {
-          status:
-            call.status === "ONGOING"
-              ? "COMPLETED"
-              : action === "decline"
-                ? "DECLINED"
-                : "MISSED",
-          endedAt: new Date(),
-        },
-      })
-    : call;
+  if (ACTIVE_CALL_STATUSES.includes(call.status)) {
+    const { count } = await prisma.callLog.updateMany({
+      where: { id: callId, status: call.status },
+      data: {
+        status:
+          call.status === "ONGOING"
+            ? "COMPLETED"
+            : action === "decline"
+              ? "DECLINED"
+              : "MISSED",
+        endedAt: new Date(),
+      },
+    });
+    // A concurrent accept/end won. Re-read and revalidate the action before
+    // changing status or revoking credentials belonging to the winning state.
+    if (count === 0) return finishCall(callId, userId, action);
+  }
+  const updated = await prisma.callLog.findUniqueOrThrow({
+    where: { id: callId },
+  });
   if (call.conversation.realtimeMeetingId)
     await revokeCallParticipants(call.conversation.realtimeMeetingId, callId);
   return callHistoryItem(updated);

@@ -70,6 +70,8 @@ function harness() {
   const commands = [],
     navigations = [],
     listeners = new Set();
+  const timers = new Map();
+  let nextTimer = 0;
   let permission = async () => ({ granted: true });
   let request = async (event) =>
     event === 'call:sync'
@@ -127,46 +129,61 @@ function harness() {
       }
     },
   };
-  const context = load('lib/calls/CallContext.tsx', {
-    react,
-    'react/jsx-runtime': { jsx: (_type, props) => props },
-    'react-native': {
-      Keyboard: { dismiss() {} },
-      AppState: { addEventListener: () => ({ remove() {} }) },
-    },
-    'expo-audio': {
-      AudioModule: { requestRecordingPermissionsAsync: () => permission() },
-    },
-    'expo-router': { router: { navigate: (route) => navigations.push(route) } },
-    '@/lib/auth/AuthContext': { useAuth: () => ({ user: { id: 'me' } }) },
-    '@/lib/socket/SocketContext': { useSocket: () => socket },
-    '@/lib/api/conversations': {
-      createDirectConversation: async () => ({ id: 'inviter-chat' }),
-    },
-    './contracts': contracts,
-    './mediaTypes': mediaTypes,
-    './audioOwnership': { stopChatAudio: async () => undefined },
-    './media': {
-      callingAvailable: true,
-      createCallMedia: async (_token, update) => {
-        mediaCreates++;
-        updateMedia = update;
-        return {
-          join: async () => {
-            mediaJoins++;
-            update({ ...mediaTypes.emptyMedia, joined: true });
-          },
-          leave: async () => {
-            mediaLeaves++;
-          },
-          camera: async () => {},
-          microphone: async () => {},
-          speaker: async () => {},
-          flip: async () => {},
-        };
+  const context = load(
+    'lib/calls/CallContext.tsx',
+    {
+      react,
+      'react/jsx-runtime': { jsx: (_type, props) => props },
+      'react-native': {
+        Keyboard: { dismiss() {} },
+        AppState: { addEventListener: () => ({ remove() {} }) },
+      },
+      'expo-audio': {
+        AudioModule: { requestRecordingPermissionsAsync: () => permission() },
+      },
+      'expo-router': {
+        router: { navigate: (route) => navigations.push(route) },
+      },
+      '@/lib/auth/AuthContext': { useAuth: () => ({ user: { id: 'me' } }) },
+      '@/lib/socket/SocketContext': { useSocket: () => socket },
+      '@/lib/api/conversations': {
+        createDirectConversation: async () => ({ id: 'inviter-chat' }),
+      },
+      './contracts': contracts,
+      './mediaTypes': mediaTypes,
+      './audioOwnership': { stopChatAudio: async () => undefined },
+      './media': {
+        callingAvailable: true,
+        createCallMedia: async (_token, update) => {
+          mediaCreates++;
+          updateMedia = update;
+          return {
+            join: async () => {
+              mediaJoins++;
+              update({ ...mediaTypes.emptyMedia, joined: true });
+            },
+            leave: async () => {
+              mediaLeaves++;
+            },
+            camera: async () => {},
+            microphone: async () => {},
+            speaker: async () => {},
+            flip: async () => {},
+          };
+        },
       },
     },
-  });
+    {
+      setTimeout(callback, delay) {
+        const id = ++nextTimer;
+        timers.set(id, { callback, delay });
+        return id;
+      },
+      clearTimeout(id) {
+        timers.delete(id);
+      },
+    }
+  );
   const socket = {
     connectionEpoch: 0,
     connectionState: 'disconnected',
@@ -202,6 +219,16 @@ function harness() {
     },
     commands,
     navigations,
+    dismissAutomatically() {
+      render();
+      const entry = [...timers.entries()].find(
+        ([, timer]) => timer.delay === 2500
+      );
+      assert.ok(entry, 'Terminal calls schedule automatic dismissal');
+      timers.delete(entry[0]);
+      entry[1].callback();
+      render();
+    },
     setPermission(fn) {
       permission = fn;
     },
@@ -240,6 +267,54 @@ function harness() {
   };
 }
 async function lifecycle() {
+  for (const scenario of ['missed', 'other-device', 'declined', 'minimized']) {
+    const h = harness();
+    const ringing = record({ initiatorId: 'peer' });
+    if (scenario === 'declined' || scenario === 'minimized') {
+      h.setRequest(async () => credentials(record()));
+      await h.value.start('chat', peer);
+      if (scenario === 'minimized') {
+        h.emit('call:accepted', record({ status: 'ONGOING' }));
+        await h.flush();
+        h.value.minimize();
+      }
+    } else h.emit('call:incoming', ringing);
+    h.emit(
+      scenario === 'other-device' ? 'call:accepted' : 'call:ended',
+      record({
+        initiatorId: 'peer',
+        status:
+          scenario === 'other-device'
+            ? 'ONGOING'
+            : scenario === 'missed'
+              ? 'MISSED'
+              : scenario === 'declined'
+                ? 'DECLINED'
+                : 'COMPLETED',
+      })
+    );
+    assert.equal(h.value.active.phase, 'ended');
+    h.dismissAutomatically();
+    await h.flush();
+    assert.equal(h.value.active, null);
+    assert.equal(
+      h.navigations.length,
+      0,
+      `${scenario} must not navigate automatically`
+    );
+  }
+  {
+    const h = harness();
+    h.emit('call:incoming', record({ initiatorId: 'peer' }));
+    h.emit('call:ended', record({ status: 'COMPLETED' }));
+    h.value.dismiss();
+    await h.flush();
+    assert.equal(
+      h.navigations.length,
+      1,
+      'Explicit Back to chat still navigates'
+    );
+  }
   {
     const h = harness();
     const ongoing = record({ status: 'ONGOING' }); // This user originally started it, then left.
@@ -785,68 +860,82 @@ async function nativeConfiguration() {
   const output = path.join(root, '.expo');
   fs.mkdirSync(output, { recursive: true });
   const fixture = fs.mkdtempSync(path.join(output, 'calling-mod-check-'));
-  // Use Expo's bundled SDK 54 template, including on a fresh clone without a
-  // generated android/ folder. Preserve the developer's native checkout.
-  await require('tar').x({
-    file: path.join(root, 'node_modules/expo/template.tgz'),
-    cwd: fixture,
-    strip: 1,
-    filter: (entry) => entry.startsWith('package/android/'),
-  });
-  const apply = () =>
-    compileModsAsync(
-      withPlugins({ ...expo, _internal: { projectRoot: root } }, [
-        '@cloudflare/react-native-webrtc',
-        '@cloudflare/realtimekit-react-native',
-        require('../plugins/with-calling'),
-      ]),
-      { projectRoot: fixture, platforms: ['android'] }
+  try {
+    // Use Expo's bundled SDK 54 template, including on a fresh clone without a
+    // generated android/ folder. Preserve the developer's native checkout.
+    await require('tar').x({
+      file: path.join(root, 'node_modules/expo/template.tgz'),
+      cwd: fixture,
+      strip: 1,
+      filter: (entry) => entry.startsWith('package/android/'),
+    });
+    const apply = () =>
+      compileModsAsync(
+        withPlugins({ ...expo, _internal: { projectRoot: root } }, [
+          '@cloudflare/react-native-webrtc',
+          '@cloudflare/realtimekit-react-native',
+          require('../plugins/with-calling'),
+        ]),
+        { projectRoot: fixture, platforms: ['android'] }
+      );
+    await apply();
+    await apply();
+    const manifest = fs.readFileSync(
+      path.join(fixture, 'android/app/src/main/AndroidManifest.xml'),
+      'utf8'
     );
-  await apply();
-  await apply();
-  const manifest = fs.readFileSync(
-    path.join(fixture, 'android/app/src/main/AndroidManifest.xml'),
-    'utf8'
-  );
+    assert.equal(
+      (manifest.match(/com.envelo.calls.EnveloCallService/g) ?? []).length,
+      1
+    );
+    assert.match(manifest, /android:foregroundServiceType="microphone"/);
+    assert.match(manifest, /FOREGROUND_SERVICE_MICROPHONE/);
+    assert.match(manifest, /BLUETOOTH_CONNECT/);
+    const sourceRoot = path.join(fixture, 'android/app/src/main/java');
+    const applicationFile = fs
+      .readdirSync(sourceRoot, { recursive: true })
+      .find((file) => file.endsWith('MainApplication.kt'));
+    assert.ok(applicationFile);
+    const application = fs.readFileSync(
+      path.join(sourceRoot, applicationFile),
+      'utf8'
+    );
+    assert.equal(
+      (
+        application.match(/add\(com.envelo.calls.EnveloCallPackage\(\)\)/g) ??
+        []
+      ).length,
+      1
+    );
+    assert.ok(
+      fs.existsSync(
+        path.join(sourceRoot, 'com/envelo/calls/EnveloCallService.kt')
+      )
+    );
+    assert.equal(
+      (
+        fs
+          .readFileSync(
+            path.join(fixture, 'android/app/proguard-rules.pro'),
+            'utf8'
+          )
+          .match(/Envelo RealtimeKit/g) ?? []
+      ).length,
+      1
+    );
+    console.log(
+      'Android calling config plugins passed twice on an isolated native template.'
+    );
+  } finally {
+    const target = path.resolve(fixture);
+    assert.equal(path.dirname(target), path.resolve(output));
+    assert.ok(path.basename(target).startsWith('calling-mod-check-'));
+    fs.rmSync(target, { recursive: true, force: true });
+  }
   assert.equal(
-    (manifest.match(/com.envelo.calls.EnveloCallService/g) ?? []).length,
-    1
-  );
-  assert.match(manifest, /android:foregroundServiceType="microphone"/);
-  assert.match(manifest, /FOREGROUND_SERVICE_MICROPHONE/);
-  assert.match(manifest, /BLUETOOTH_CONNECT/);
-  const sourceRoot = path.join(fixture, 'android/app/src/main/java');
-  const applicationFile = fs
-    .readdirSync(sourceRoot, { recursive: true })
-    .find((file) => file.endsWith('MainApplication.kt'));
-  assert.ok(applicationFile);
-  const application = fs.readFileSync(
-    path.join(sourceRoot, applicationFile),
-    'utf8'
-  );
-  assert.equal(
-    (application.match(/add\(com.envelo.calls.EnveloCallPackage\(\)\)/g) ?? [])
-      .length,
-    1
-  );
-  assert.ok(
-    fs.existsSync(
-      path.join(sourceRoot, 'com/envelo/calls/EnveloCallService.kt')
-    )
-  );
-  assert.equal(
-    (
-      fs
-        .readFileSync(
-          path.join(fixture, 'android/app/proguard-rules.pro'),
-          'utf8'
-        )
-        .match(/Envelo RealtimeKit/g) ?? []
-    ).length,
-    1
-  );
-  console.log(
-    'Android calling config plugins passed twice on an isolated native template.'
+    fs.existsSync(fixture),
+    false,
+    'Native fixture is removed after verification'
   );
 }
 main().catch((error) => {

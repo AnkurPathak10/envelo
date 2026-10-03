@@ -364,7 +364,7 @@ export function CallOverlay() {
             {active.phase === 'ended' ? (
               <Pressable
                 accessibilityRole="button"
-                onPress={call.dismiss}
+                onPress={() => call.dismiss()}
                 style={styles.done}
               >
                 <Text style={styles.controlLabel}>Back to chat</Text>

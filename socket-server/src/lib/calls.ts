@@ -334,7 +334,7 @@ export class CallCoordinator {
       if (!active || !invitation) return;
       if (invitation.expiresAt > Date.now()) {
         invitation.timer = setTimeout(() => {
-          void this.expireGuest(callId, userId);
+          void this.expireGuest(callId, userId).catch(() => undefined);
         }, invitation.expiresAt - Date.now());
         return;
       }

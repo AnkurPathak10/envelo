@@ -9,8 +9,12 @@ async function main() {
     headers: { Authorization: `Bearer ${e.CLOUDFLARE_API_TOKEN}` },
     signal: AbortSignal.timeout(15000),
   });
-  const result = await response.json();
-  if (!response.ok || !result.success) throw new Error("Preset lookup failed");
+  if (!response.ok)
+    throw new Error(`Preset lookup failed (${response.status})`);
+  const result = await response.json().catch(() => {
+    throw new Error("Invalid preset lookup response");
+  });
+  if (!result?.success) throw new Error("Preset lookup failed");
   const rows = Array.isArray(result.data) ? result.data : result.data?.presets;
   const preset = rows?.find(
     (p) => p.name === e.CLOUDFLARE_REALTIME_PRESET_NAME,
@@ -23,9 +27,12 @@ async function main() {
       signal: AbortSignal.timeout(15000),
     },
   );
-  const detail = await detailResponse.json();
-  if (!detailResponse.ok || !detail.success)
-    throw new Error("Preset detail lookup failed");
+  if (!detailResponse.ok)
+    throw new Error(`Preset detail lookup failed (${detailResponse.status})`);
+  const detail = await detailResponse.json().catch(() => {
+    throw new Error("Invalid preset detail response");
+  });
+  if (!detail?.success) throw new Error("Preset detail lookup failed");
   const numericLimits = {};
   function visit(value, key) {
     if (typeof value === "number" && /max|limit|grid|page/i.test(key))
