@@ -9,7 +9,8 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": { "UIBackgroundModes": ["audio"] }
     },
     "android": {
       "adaptiveIcon": {
@@ -30,6 +31,9 @@
     },
     "plugins": [
       "expo-router",
+      "@cloudflare/react-native-webrtc",
+      "@cloudflare/realtimekit-react-native",
+      "./plugins/with-calling",
       "./plugins/with-conversation-notifications",
       [
         "expo-notifications",
@@ -55,7 +59,7 @@
       [
         "expo-image-picker",
         {
-          "cameraPermission": "Envelo needs camera access so you can take and share photos in conversations.",
+          "cameraPermission": "Envelo uses your camera when you enable video in a call or take a photo to share.",
           "photosPermission": "Envelo needs access to your photos so you can set a profile picture and share images.",
           "microphonePermission": false
         }
@@ -83,7 +87,7 @@
       [
         "expo-audio",
         {
-          "microphonePermission": "Envelo needs microphone access when you hold the mic to send a voice message."
+          "microphonePermission": "Envelo uses your microphone for calls and when you record a voice message."
         }
       ]
     ],

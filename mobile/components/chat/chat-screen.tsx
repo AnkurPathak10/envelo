@@ -34,6 +34,10 @@ import {
   type GroupDetail,
 } from '@/lib/api/conversations';
 import { useAuth } from '@/lib/auth/AuthContext';
+import { useCall } from '@/lib/calls/CallContext';
+import { useCallHistory } from '@/lib/calls/useCallHistory';
+import type { CallRecord } from '@/lib/calls/contracts';
+import { CallHistoryRow } from '@/components/calls/call-history-row';
 import { useAppColorScheme } from '@/lib/theme/useAppColorScheme';
 import {
   cacheMessageHistoryPage,
@@ -70,10 +74,16 @@ interface ChatScreenProps {
   isSearchOpen?: boolean;
   participantAvatarUrl?: string | null;
   participantName?: string;
+  participantId?: string;
   searchQuery?: string;
 }
 
 const EMPTY_GROUP_MEMBERS: GroupDetail['members'] = [];
+function isCallRow(
+  item: RenderableTextMessage | CallRecord
+): item is CallRecord {
+  return 'type' in item && item.type === 'call';
+}
 
 type InitialHistoryState =
   'checking-cache' | 'loading' | 'loaded' | 'error' | 'not-found';
@@ -144,10 +154,13 @@ export function ChatScreen({
   isSearchOpen = false,
   participantAvatarUrl = null,
   participantName = 'Conversation',
+  participantId = '',
   searchQuery = '',
 }: ChatScreenProps) {
   const { user } = useAuth();
   const isGroup = conversationType === 'GROUP';
+  const { start: startCall } = useCall();
+  const callHistory = useCallHistory(conversationId, hiddenBefore, !isGroup);
   const groupMemberById = useMemo(
     () => new Map(groupMembers.map((member) => [member.id, member])),
     [groupMembers]
@@ -208,7 +221,7 @@ export function ChatScreen({
   const [isAppViewVisible, setIsAppViewVisible] = useState(
     isCurrentAppViewVisible
   );
-  const listRef = useRef<FlatList<RenderableTextMessage>>(null);
+  const listRef = useRef<FlatList<RenderableTextMessage | CallRecord>>(null);
   const hasMeasuredComposerForConversation = useRef(false);
   const pendingScroll = useRef<{
     animated: boolean;
@@ -627,6 +640,17 @@ export function ChatScreen({
   const displayedMessages = trimmedSearchQuery
     ? searchResults
     : renderedMessages;
+  const historyRows = useMemo(
+    () =>
+      trimmedSearchQuery
+        ? displayedMessages
+        : [...displayedMessages, ...callHistory.calls].sort(
+            (a, b) =>
+              Date.parse(a.createdAt) - Date.parse(b.createdAt) ||
+              a.id.localeCompare(b.id)
+          ),
+    [callHistory.calls, displayedMessages, trimmedSearchQuery]
+  );
 
   useEffect(() => {
     if (!isSearchOpen || !trimmedSearchQuery) {
@@ -1093,12 +1117,16 @@ export function ChatScreen({
       <FlatList
         contentContainerStyle={[
           styles.listContent,
-          displayedMessages.length === 0 && styles.emptyList,
+          displayedMessages.length === 0 &&
+            (trimmedSearchQuery || callHistory.calls.length === 0) &&
+            styles.emptyList,
         ]}
-        data={displayedMessages}
+        data={historyRows}
         keyboardShouldPersistTaps="handled"
         key={`messages-${conversationId}`}
-        keyExtractor={(message) => message.id}
+        keyExtractor={(message) =>
+          `${'type' in message && message.type === 'call' ? 'call' : 'message'}:${message.id}`
+        }
         ListEmptyComponent={
           <View style={styles.emptyState}>
             {isSearchingMessages ? (
@@ -1121,36 +1149,57 @@ export function ChatScreen({
           </View>
         }
         ListHeaderComponent={
-          trimmedSearchQuery && displayedMessages.length > 0 ? (
-            <View style={styles.searchSummary}>
-              <Text style={styles.searchSummaryText}>
-                {displayedMessages.length}{' '}
-                {displayedMessages.length === 1 ? 'match' : 'matches'}
-              </Text>
-            </View>
-          ) : nextCursor && !isSearchOpen ? (
-            <View style={styles.earlierContainer}>
-              {earlierError ? (
-                <Text style={styles.earlierError}>{earlierError}</Text>
-              ) : null}
+          <>
+            {!isSearchOpen && (callHistory.nextCursor || callHistory.error) && (
               <Pressable
                 accessibilityRole="button"
-                disabled={isLoadingEarlier}
-                onPress={() => void loadEarlier()}
-                style={({ pressed }) => [
-                  styles.earlierButton,
-                  isLoadingEarlier && styles.earlierButtonDisabled,
-                  pressed && !isLoadingEarlier && styles.earlierButtonPressed,
-                ]}
+                disabled={callHistory.loading}
+                onPress={() =>
+                  void (callHistory.error
+                    ? callHistory.retry()
+                    : callHistory.loadEarlier())
+                }
+                style={styles.earlierButton}
               >
                 <Text style={styles.earlierButtonText}>
-                  {isLoadingEarlier
-                    ? 'Loading earlier messages…'
-                    : 'Load earlier messages'}
+                  {callHistory.error ??
+                    (callHistory.loading
+                      ? 'Loading earlier calls…'
+                      : 'Load earlier calls')}
                 </Text>
               </Pressable>
-            </View>
-          ) : null
+            )}
+            {trimmedSearchQuery && displayedMessages.length > 0 ? (
+              <View style={styles.searchSummary}>
+                <Text style={styles.searchSummaryText}>
+                  {displayedMessages.length}{' '}
+                  {displayedMessages.length === 1 ? 'match' : 'matches'}
+                </Text>
+              </View>
+            ) : nextCursor && !isSearchOpen ? (
+              <View style={styles.earlierContainer}>
+                {earlierError ? (
+                  <Text style={styles.earlierError}>{earlierError}</Text>
+                ) : null}
+                <Pressable
+                  accessibilityRole="button"
+                  disabled={isLoadingEarlier}
+                  onPress={() => void loadEarlier()}
+                  style={({ pressed }) => [
+                    styles.earlierButton,
+                    isLoadingEarlier && styles.earlierButtonDisabled,
+                    pressed && !isLoadingEarlier && styles.earlierButtonPressed,
+                  ]}
+                >
+                  <Text style={styles.earlierButtonText}>
+                    {isLoadingEarlier
+                      ? 'Loading earlier messages…'
+                      : 'Load earlier messages'}
+                  </Text>
+                </Pressable>
+              </View>
+            ) : null}
+          </>
         }
         ListFooterComponent={
           <View
@@ -1166,29 +1215,46 @@ export function ChatScreen({
         onContentSizeChange={flushPendingScroll}
         onLayout={flushPendingScroll}
         ref={listRef}
-        renderItem={({ item }) => (
-          <MessageBubble
-            avatarUrl={
-              item.senderId === user?.id
-                ? (user?.avatarUrl ?? null)
-                : isGroup
-                  ? (groupMemberById.get(item.senderId)?.avatarUrl ?? null)
-                  : participantAvatarUrl
-            }
-            isOutgoing={item.senderId === user?.id}
-            message={item}
-            onReply={isSearchOpen ? undefined : beginReply}
-            showSenderName={isGroup}
-            senderName={
-              item.senderId === user?.id
-                ? 'You'
-                : isGroup
-                  ? (groupMemberById.get(item.senderId)?.displayName ??
-                    'Group member')
-                  : participantName
-            }
-          />
-        )}
+        renderItem={({ item }) =>
+          isCallRow(item) ? (
+            <CallHistoryRow
+              call={item}
+              outgoing={item.initiatorId === user?.id}
+              onRedial={
+                participantId
+                  ? () =>
+                      void startCall(conversationId, {
+                        id: participantId,
+                        displayName: participantName,
+                        avatarUrl: participantAvatarUrl,
+                      })
+                  : undefined
+              }
+            />
+          ) : (
+            <MessageBubble
+              avatarUrl={
+                item.senderId === user?.id
+                  ? (user?.avatarUrl ?? null)
+                  : isGroup
+                    ? (groupMemberById.get(item.senderId)?.avatarUrl ?? null)
+                    : participantAvatarUrl
+              }
+              isOutgoing={item.senderId === user?.id}
+              message={item}
+              onReply={isSearchOpen ? undefined : beginReply}
+              showSenderName={isGroup}
+              senderName={
+                item.senderId === user?.id
+                  ? 'You'
+                  : isGroup
+                    ? (groupMemberById.get(item.senderId)?.displayName ??
+                      'Group member')
+                    : participantName
+              }
+            />
+          )
+        }
         scrollEnabled={isInitialPositionReady}
         style={[
           styles.list,

@@ -8,6 +8,7 @@
     "start": "next start",
     "verify:friends": "node --env-file=.env scripts/verify-friend-flow.cjs",
     "verify:groups": "node --env-file=.env scripts/verify-group-flow.cjs",
+    "verify:calls": "node --env-file=.env scripts/verify-calls.cjs",
     "postinstall": "prisma skills sync || exit 0"
   },
   "dependencies": {

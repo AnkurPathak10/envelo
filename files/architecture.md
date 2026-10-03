@@ -2,16 +2,16 @@
 
 ## Stack
 
-| Layer                  | Technology                                   | Role                                                                 |
-| ----------------------- | --------------------------------------------- | --------------------------------------------------------------------- |
-| Mobile Frontend         | Expo + React Native + TypeScript             | Chat UI, client-side logic, WebSocket + REST client                 |
-| Main Backend            | Next.js (API routes)                         | Auth (signup/login/token issuing), REST APIs, conversation/message history |
-| Real-time Backend       | Node.js + Express + Socket.io                | WebSocket server — live message delivery, delivery/read events      |
-| Database                | Prisma + Neon Postgres                       | Users, conversations, messages, message status, refresh tokens      |
-| Auth                    | Custom JWT (access + refresh tokens), bcrypt | Session management, password hashing                                |
-| Media Storage           | Cloudinary                                   | Chat images/media, served via CDN                                   |
-| Deployment — backend    | Vercel                                       | Hosts the Next.js app                                                |
-| Deployment — socket server | Render                                    | Hosts the always-on Socket.io process (Railway excluded)            |
+| Layer                      | Technology                                   | Role                                                                       |
+| -------------------------- | -------------------------------------------- | -------------------------------------------------------------------------- |
+| Mobile Frontend            | Expo + React Native + TypeScript             | Chat UI, client-side logic, WebSocket + REST client                        |
+| Main Backend               | Next.js (API routes)                         | Auth (signup/login/token issuing), REST APIs, conversation/message history |
+| Real-time Backend          | Node.js + Express + Socket.io                | WebSocket server — live message delivery, delivery/read events             |
+| Database                   | Prisma + Neon Postgres                       | Users, conversations, messages, message status, refresh tokens             |
+| Auth                       | Custom JWT (access + refresh tokens), bcrypt | Session management, password hashing                                       |
+| Media Storage              | Cloudinary                                   | Chat images/media, served via CDN                                          |
+| Deployment — backend       | Vercel                                       | Hosts the Next.js app                                                      |
+| Deployment — socket server | Render                                       | Hosts the always-on Socket.io process (Railway excluded)                   |
 
 ## System Boundaries
 
@@ -91,6 +91,51 @@
 
 ## Invariants
 
+### Calling client (Features 30–32)
+
+- Calling signaling uses the authenticated existing Socket.IO connection;
+  Cloudflare RealtimeKit carries the media. `CallProvider` lives above tab
+  navigation, and its root overlay owns the full-screen/minimized UI so
+  navigation does not create or destroy the media session.
+- SDK/native adapters are separated from UI. Expo 54 uses pinned RealtimeKit
+  React Native 1.1.0/WebRTC 125.0.1. Native modules load lazily; Expo Go/older
+  builds and web continue messaging but report that calling needs a native build.
+- Participant credentials exist only in memory during provisioning/joining.
+  They are never persisted in history, route parameters, logs, or shared links.
+  Server call state is authoritative; incoming push is a hint followed by sync.
+- REST call history is an independent cursor stream merged with messages by
+  creation time and durable ID. A bounded account/conversation/clear-boundary
+  session cache speeds reopening, while the existing persistent message cache
+  stays in use. Refreshes do not create blocking message-loading UI.
+- Android uses a microphone foreground service with an ongoing notification;
+  iOS enables audio background mode. Camera pauses when backgrounded. Chat
+  players/recorders yield the native audio session before call media starts.
+  Physical-device audio continuity and interruption acceptance remain pending.
+- Feature 32 extends the existing `call:invite` payload with `{ callId, userId }`
+  for an existing meeting. The single socket coordinator owns joined members,
+  independent 45-second invitations, per-user admission, and credential maps;
+  existing accepted/sync/ended events carry roster and per-user leave metadata.
+  Only a joined member can invite, and the signed backend bridge checks the
+  inviter's accepted friendship with the target. There are no new public events
+  or database tables. Guest media admission never grants private chat membership
+  or history access; Send message opens the guest's friend-gated inviter chat.
+- After a third member accepts, the call remains multiparty even as people
+  leave. Leaving revokes only that member's provider credential. The last joined
+  member leaving finalizes the original single CallLog and revokes remaining
+  invitations/credentials; duration starts at the original first acceptance,
+  and hadVideo remains monotonic. Direct calls that never become multiparty keep
+  their existing two-person end behavior. Restart recovery ends/revokes all
+  unfinished calls, rather than reconstructing in-memory invitation state.
+- The existing call overlay uses a scrollable participant grid with stable
+  identities, video/avatars and mute state. No application participant cap is
+  imposed. The configured preset allows nine simultaneous video streams per
+  mobile/desktop client; this is a subscription/viewing limit, not an enforced
+  meeting admission limit. Larger-call media-window behavior needs device testing.
+- Screen sharing, system picture-in-picture, and killed-app CallKit/VoIP ringing
+  remain deferred. The minimized call bubble is in-app, not OS picture-in-picture.
+
+### Existing invariants
+
 1. The Socket.io server never performs signup/login/token-issuing
    logic — that is the Next.js backend's responsibility exclusively.
 2. A message is persisted to Postgres before (or atomically with)
@@ -104,5 +149,7 @@
    a single socket server instance.
 5. Group chat is introduced in stages: Feature 26 supplies the REST
    and schema foundation, Feature 27 supplies socket messaging, and
-   Features 28–29 supply mobile UI. Calls and end-to-end encryption
-   remain out of scope until separately planned.
+   Features 28–29 supply mobile UI. Features 30–31 add direct-call signaling
+   and mobile media/UI; Feature 32 extends an ongoing direct call with friend
+   invitations and multiparty media without converting its private chat to a group.
+   End-to-end encryption remains out of scope until separately planned.

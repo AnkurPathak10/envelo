@@ -11,6 +11,7 @@ import {
 import NetInfo from '@react-native-community/netinfo';
 import { AppState, type AppStateStatus } from 'react-native';
 import { io, type Socket } from 'socket.io-client';
+import type { CallAck, CallCommand, CallEvent } from '@/lib/calls/contracts';
 
 import type {
   MessageReplyPreview,
@@ -85,6 +86,12 @@ export type ConversationVisibilityAcknowledgement =
   | { success: false; error: string };
 
 interface ServerToClientEvents {
+  'call:incoming': (data: unknown) => void;
+  'call:accepted': (data: unknown) => void;
+  'call:declined': (data: unknown) => void;
+  'call:missed': (data: unknown) => void;
+  'call:ended': (data: unknown) => void;
+  'call:ringing-timeout': (data: unknown) => void;
   'friend:request': (event: FriendRequestEvent) => void;
   'message:new': (message: SocketTextMessage) => void;
   'message:status': (update: MessageStatusUpdate) => void;
@@ -92,6 +99,30 @@ interface ServerToClientEvents {
 }
 
 interface ClientToServerEvents {
+  'call:invite': (
+    payload: { conversationId?: string; callId?: string; userId?: string },
+    ack: (result: CallAck) => void
+  ) => void;
+  'call:accept': (
+    payload: { conversationId?: string; callId?: string },
+    ack: (result: CallAck) => void
+  ) => void;
+  'call:decline': (
+    payload: { conversationId?: string; callId?: string },
+    ack: (result: CallAck) => void
+  ) => void;
+  'call:end': (
+    payload: { conversationId?: string; callId?: string },
+    ack: (result: CallAck) => void
+  ) => void;
+  'call:video-enabled': (
+    payload: { conversationId?: string; callId?: string },
+    ack: (result: CallAck) => void
+  ) => void;
+  'call:sync': (
+    payload: { conversationId?: string; callId?: string },
+    ack: (result: CallAck) => void
+  ) => void;
   'message:send': (
     payload: MessageSendPayload,
     acknowledge: (result: MessageSendAcknowledgement) => void
@@ -133,6 +164,13 @@ export type SocketConnectionState =
   | 'error';
 
 interface SocketContextValue {
+  requestCall: (
+    event: CallCommand,
+    payload: { conversationId?: string; callId?: string; userId?: string }
+  ) => Promise<unknown>;
+  subscribeToCalls: (
+    listener: (event: CallEvent, data: unknown) => void
+  ) => () => void;
   connectionState: SocketConnectionState;
   connectionEpoch: number;
   pendingMessages: PendingMessage[];
@@ -238,6 +276,45 @@ export function SocketProvider({ children }: PropsWithChildren) {
   const currentUserIdRef = useRef(user?.id);
   currentUserIdRef.current = user?.id;
   const socketRef = useRef<EnveloSocket | null>(null);
+  const callListenersRef = useRef(
+    new Set<(event: CallEvent, data: unknown) => void>()
+  );
+  const requestCall = useCallback(
+    (
+      event: CallCommand,
+      payload: { conversationId?: string; callId?: string; userId?: string }
+    ): Promise<unknown> =>
+      new Promise((resolve, reject) => {
+        const socket = socketRef.current;
+        if (!socket?.connected) {
+          reject(new Error('Connect to the internet to use calls.'));
+          return;
+        }
+        // Provider provisioning can exceed the message acknowledgement timeout.
+        socket
+          .timeout(70_000)
+          .emit(event, payload, (error: Error | null, result: CallAck) => {
+            if (error)
+              reject(
+                new Error(
+                  'Call request timed out. Reconnecting to check its status.'
+                )
+              );
+            else if (!result.ok) reject(new Error(result.error));
+            else resolve(result.data);
+          });
+      }),
+    []
+  );
+  const subscribeToCalls = useCallback(
+    (listener: (event: CallEvent, data: unknown) => void) => {
+      callListenersRef.current.add(listener);
+      return () => {
+        callListenersRef.current.delete(listener);
+      };
+    },
+    []
+  );
   const messageListenersRef = useRef(new Set<NewMessageListener>());
   const friendRequestListenersRef = useRef(new Set<FriendRequestListener>());
   const messageStatusListenersRef = useRef(new Set<MessageStatusListener>());
@@ -254,9 +331,9 @@ export function SocketProvider({ children }: PropsWithChildren) {
     (clientMessageId: string) => Promise<void>
   >(async () => undefined);
   const pendingQueueFlushRef = useRef<() => void>(() => undefined);
-  const pendingQueueRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null
-  );
+  const pendingQueueRetryTimerRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
   const pendingQueueRetryCountRef = useRef(0);
   const isPendingQueueFlushRunningRef = useRef(false);
   const pendingQueueFlushRequestedRef = useRef(false);
@@ -427,6 +504,21 @@ export function SocketProvider({ children }: PropsWithChildren) {
     };
 
     socket.on('connect', handleConnect);
+    const callEvents: CallEvent[] = [
+      'call:incoming',
+      'call:accepted',
+      'call:declined',
+      'call:missed',
+      'call:ended',
+      'call:ringing-timeout',
+    ];
+    const callHandlers = callEvents.map((event) => {
+      const handler = (data: unknown) => {
+        for (const listener of callListenersRef.current) listener(event, data);
+      };
+      socket.on(event, handler);
+      return { event, handler };
+    });
     socket.on('disconnect', handleDisconnect);
     socket.on('connect_error', handleConnectError);
     socket.on('message:new', handleNewMessage);
@@ -439,6 +531,7 @@ export function SocketProvider({ children }: PropsWithChildren) {
 
     return () => {
       socket.off('connect', handleConnect);
+      for (const { event, handler } of callHandlers) socket.off(event, handler);
       socket.off('disconnect', handleDisconnect);
       socket.off('connect_error', handleConnectError);
       socket.off('message:new', handleNewMessage);
@@ -684,7 +777,9 @@ export function SocketProvider({ children }: PropsWithChildren) {
                 );
               }
               if (!resolvedAcknowledgement.ok) {
-                if (resolvedAcknowledgement.error === 'Unable to send message') {
+                if (
+                  resolvedAcknowledgement.error === 'Unable to send message'
+                ) {
                   shouldRetry = true;
                 }
                 break;
@@ -1122,6 +1217,8 @@ export function SocketProvider({ children }: PropsWithChildren) {
 
   const value = useMemo(
     () => ({
+      requestCall,
+      subscribeToCalls,
       connectionState,
       connectionEpoch,
       pendingMessages,
@@ -1140,6 +1237,8 @@ export function SocketProvider({ children }: PropsWithChildren) {
       subscribeToConversationVisibility,
     }),
     [
+      requestCall,
+      subscribeToCalls,
       connectionEpoch,
       connectionState,
       pendingMessages,

@@ -4,7 +4,7 @@ import {
   useAudioPlayer,
   useAudioPlayerStatus,
 } from 'expo-audio';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { MessageStatusIcon } from '@/components/chat/message-status-icon';
@@ -12,6 +12,8 @@ import { ConversationAvatar } from '@/components/conversations/conversation-avat
 import { messagingColors as colors } from '@/constants/theme';
 import type { LocalMessageStatus } from '@/lib/chat/messages';
 import { useAppColorScheme } from '@/lib/theme/useAppColorScheme';
+import { useCall } from '@/lib/calls/CallContext';
+import { registerChatAudio } from '@/lib/calls/audioOwnership';
 
 interface VoiceMessagePlayerProps {
   audioUrl: string;
@@ -56,11 +58,25 @@ export function VoiceMessagePlayer({
   status: messageStatus,
   timestamp,
 }: VoiceMessagePlayerProps) {
+  const { active } = useCall();
+  const inCall = Boolean(active && active.phase !== 'ended');
+  const inCallRef = useRef(inCall);
+  inCallRef.current = inCall;
   const scheme = useAppColorScheme();
   const c = colors[scheme];
   const styles = createStyles(isOutgoing ? c.outgoingText : c.textPrimary);
   const player = useAudioPlayer(audioUrl, { updateInterval: 100 });
   const status = useAudioPlayerStatus(player);
+  useEffect(
+    () =>
+      registerChatAudio(async () => {
+        player.pause();
+      }),
+    [player]
+  );
+  useEffect(() => {
+    if (inCall) player.pause();
+  }, [inCall, player]);
   const [speed, setSpeed] = useState<(typeof PLAYBACK_SPEEDS)[number]>(1);
   const bars = useMemo(() => waveformForMessage(messageId), [messageId]);
   const durationSeconds = status.duration || durationMs / 1000;
@@ -80,10 +96,12 @@ export function VoiceMessagePlayer({
   }, [player, status.didJustFinish]);
 
   const togglePlayback = async (): Promise<void> => {
+    if (inCallRef.current) return;
     await setAudioModeAsync({
       allowsRecording: false,
       playsInSilentMode: true,
     });
+    if (inCallRef.current) return;
     if (status.playing) {
       player.pause();
       return;
@@ -132,6 +150,10 @@ export function VoiceMessagePlayer({
           status.playing ? 'Pause voice message' : 'Play voice message'
         }
         accessibilityRole="button"
+        disabled={inCall}
+        accessibilityHint={
+          inCall ? 'Voice messages are paused during a call' : undefined
+        }
         onPress={() => void togglePlayback()}
         style={({ pressed }) => [styles.playButton, pressed && styles.pressed]}
       >

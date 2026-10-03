@@ -25,6 +25,7 @@ interface ChatHeaderProps {
   onDeleteChat: () => void;
   onOpenSearch: () => void;
   onOpenInfo?: () => void;
+  onCall?: () => void;
   onSearchQueryChange: (query: string) => void;
   participantId: string;
   searchQuery: string;
@@ -42,6 +43,7 @@ export function ChatHeader({
   onDeleteChat,
   onOpenSearch,
   onOpenInfo,
+  onCall,
   onSearchQueryChange,
   participantId,
   searchQuery,
@@ -91,6 +93,17 @@ export function ChatHeader({
             </Text>
           </Pressable>
 
+          {onCall && (
+            <Pressable
+              accessibilityLabel="Start voice call"
+              accessibilityRole="button"
+              disabled={isBusy}
+              onPress={onCall}
+              style={styles.iconButton}
+            >
+              <MaterialIcons color={c.textPrimary} name="call" size={25} />
+            </Pressable>
+          )}
           <Pressable
             accessibilityLabel="Open chat menu"
             accessibilityRole="button"

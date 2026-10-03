@@ -1,4 +1,6 @@
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import { useCall } from '@/lib/calls/CallContext';
+import { registerChatAudio } from '@/lib/calls/audioOwnership';
 import { BlurView } from 'expo-blur';
 import {
   getRecordingPermissionsAsync,
@@ -133,6 +135,10 @@ export function MessageComposer({
   replyTo,
   onCancelReply,
 }: MessageComposerProps) {
+  const { active } = useCall();
+  const inCall = Boolean(active && active.phase !== 'ended');
+  const inCallRef = useRef(inCall);
+  inCallRef.current = inCall;
   const [accessoryPanel, setAccessoryPanel] = useState<AccessoryPanel>(null);
   const scheme = useAppColorScheme();
   const c = colors[scheme];
@@ -252,6 +258,10 @@ export function MessageComposer({
   );
 
   const startVoiceRecording = useCallback(async (): Promise<void> => {
+    if (inCallRef.current) {
+      setVoiceNotice('Finish your call before recording a voice message.');
+      return;
+    }
     if (
       isMediaBusy ||
       isSending ||
@@ -284,7 +294,7 @@ export function MessageComposer({
         setVoiceNotice('Microphone is ready. Press and hold to record audio.');
         return;
       }
-      if (!gestureActiveRef.current) return;
+      if (!gestureActiveRef.current || inCallRef.current) return;
 
       await setAudioModeAsync({
         allowsRecording: true,
@@ -297,7 +307,7 @@ export function MessageComposer({
       if (!existingRecorderStatus.canRecord) {
         await recorder.prepareToRecordAsync();
       }
-      if (!gestureActiveRef.current) {
+      if (!gestureActiveRef.current || inCallRef.current) {
         await setAudioModeAsync({
           allowsRecording: false,
           playsInSilentMode: true,
@@ -341,6 +351,21 @@ export function MessageComposer({
     recorder,
     resetRecordingUi,
   ]);
+
+  useEffect(
+    () =>
+      registerChatAudio(async () => {
+        clearHoldTimer();
+        gestureActiveRef.current = false;
+        pendingFinishRef.current = true;
+        // Permission/preparation and an existing stop can still be in flight.
+        // Wait for them before handing the native audio session to RealtimeKit.
+        while (isStartingRecordingRef.current || isStoppingRecordingRef.current)
+          await wait(25);
+        if (isRecordingRef.current) await finishVoiceRecording(true);
+      }),
+    [clearHoldTimer, finishVoiceRecording]
+  );
 
   const voicePanResponder = useMemo(
     () =>

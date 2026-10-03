@@ -26,6 +26,7 @@ import {
   type GroupDetail,
 } from '@/lib/api/conversations';
 import { useAuth } from '@/lib/auth/AuthContext';
+import { useCall } from '@/lib/calls/CallContext';
 import { getCachedConversations } from '@/lib/cache/conversationCache';
 import { removeCachedMessageHistory } from '@/lib/cache/messageCache';
 import { useSocket } from '@/lib/socket/SocketContext';
@@ -39,6 +40,7 @@ function firstParam(value: string | string[] | undefined): string {
 
 export default function ConversationScreen() {
   const { user } = useAuth();
+  const { start: startCall } = useCall();
   const {
     clearConversationAcrossDevices,
     deleteConversationAcrossDevices,
@@ -296,6 +298,16 @@ export default function ConversationScreen() {
             isSearchOpen={isSearchOpen}
             name={participantName}
             onBack={() => router.back()}
+            onCall={
+              !isGroup && participantId
+                ? () =>
+                    void startCall(conversationId, {
+                      id: participantId,
+                      displayName: participantName,
+                      avatarUrl: participantAvatarUrl || null,
+                    })
+                : undefined
+            }
             onClearChat={confirmClearChat}
             onCloseSearch={() => {
               setIsSearchOpen(false);
@@ -327,6 +339,7 @@ export default function ConversationScreen() {
             participantAvatarUrl={participantAvatarUrl || null}
             participantName={participantName}
             searchQuery={isSearchOpen ? searchQuery : ''}
+            participantId={participantId}
           />
         </>
       )}

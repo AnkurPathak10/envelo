@@ -18,6 +18,8 @@ import 'react-native-reanimated';
 import { colors } from '@/constants/theme';
 import { AuthProvider, useAuth } from '@/lib/auth/AuthContext';
 import { SocketProvider } from '@/lib/socket/SocketContext';
+import { CallProvider } from '@/lib/calls/CallContext';
+import { CallOverlay } from '@/components/calls/call-overlay';
 import { PushNotifications } from '@/lib/push/PushNotifications';
 import { AppThemeProvider } from '@/lib/theme/ThemeContext';
 import { useAppColorScheme } from '@/lib/theme/useAppColorScheme';
@@ -87,9 +89,12 @@ function ThemedRootLayout() {
     <ThemeProvider value={navigationTheme}>
       <AuthProvider>
         <SocketProvider>
-          <RootNavigator />
-          <PushNotifications />
-          <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
+          <CallProvider>
+            <RootNavigator />
+            <PushNotifications />
+            <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
+            <CallOverlay />
+          </CallProvider>
         </SocketProvider>
       </AuthProvider>
     </ThemeProvider>

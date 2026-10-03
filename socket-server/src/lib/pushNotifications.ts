@@ -1,10 +1,37 @@
 import { Expo, type ExpoPushMessage } from "expo-server-sdk";
 
 import type { TextMessagePayload } from "./messages";
+import type { CallUser } from "./callBackend";
 import { prisma } from "./prisma";
 
 const expo = new Expo();
 const RECEIPT_DELAY_MS = 15 * 60 * 1000;
+
+export async function sendCallPush(caller: CallUser, recipientId: string,
+  callId: string, conversationId: string, expiresAt: string): Promise<void> {
+  try {
+    const registrations = await prisma.pushToken.findMany({ where: { userId: recipientId }, select: { token: true } });
+    const secondsLeft = Math.floor((Date.parse(expiresAt) - Date.now()) / 1000);
+    if (secondsLeft <= 0) return;
+    const messages: ExpoPushMessage[] = registrations.filter(r => Expo.isExpoPushToken(r.token)).map(r => ({
+      to: r.token, title: caller.displayName, body: "Incoming call", sound: "default",
+      channelId: "messages", priority: "high", ttl: secondsLeft,
+      data: { type: "incoming_call", callId, conversationId, recipientUserId: recipientId,
+        callerId: caller.id, callerName: caller.displayName, callerAvatarUrl: caller.avatarUrl, expiresAt },
+    }));
+    for (const chunk of expo.chunkPushNotifications(messages)) {
+      const tickets = await expo.sendPushNotificationsAsync(chunk);
+      for (const [index, ticket] of tickets.entries()) {
+        const token = chunk[index].to as string;
+        if (ticket.status === "ok") await prisma.pushReceipt.create({ data: {
+          id: ticket.id, token, checkAfter: new Date(Date.now() + RECEIPT_DELAY_MS),
+        } });
+        else if (ticket.details?.error === "DeviceNotRegistered")
+          await prisma.pushToken.deleteMany({ where: { token } });
+      }
+    }
+  } catch { console.warn("Incoming call push failed; ringing continues via sockets"); }
+}
 
 function preview(message: TextMessagePayload): string {
   const content = message.content?.replace(/\s+/g, " ").trim();

@@ -6,6 +6,8 @@ import { Server } from "socket.io";
 import { z } from "zod";
 
 import { verifySocketToken } from "./auth/verifySocketToken";
+import { registerCallHandlers, registerCallStartRoute } from "./events/calls";
+import { CallCoordinator } from "./lib/calls";
 import { registerConversationVisibilityHandler } from "./events/conversationVisibility";
 import { registerMessageDeliveredHandler } from "./events/messageDelivered";
 import { registerMessageReadHandler } from "./events/messageRead";
@@ -33,6 +35,9 @@ const io = new Server<
   InterServerEvents,
   SocketData
 >(httpServer, { cors: { origin: "*" } });
+
+const callCoordinator = new CallCoordinator(io);
+registerCallStartRoute(app, callCoordinator);
 
 const friendEventSchema = z.object({
   requestId: z.string().min(1),
@@ -88,6 +93,7 @@ io.on("connection", (socket) => {
   registerMessageDeliveredHandler(io, socket);
   registerMessageReadHandler(io, socket);
   registerConversationVisibilityHandler(io, socket);
+  registerCallHandlers(callCoordinator, socket);
 
   console.log(`Socket connected: ${socket.id}, user: ${socket.data.userId}`);
 
@@ -101,4 +107,11 @@ io.on("connection", (socket) => {
 httpServer.listen(env.port, () => {
   console.log(`Socket server listening on port ${env.port}`);
   startPushReceiptWorker();
+  const initializeCalls = () => {
+    void callCoordinator.initialize().catch(() => {
+      console.warn("Call backend startup recovery unavailable; retrying in 5 seconds");
+      setTimeout(initializeCalls, 5_000).unref();
+    });
+  };
+  initializeCalls();
 });

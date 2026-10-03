@@ -3,6 +3,38 @@ import type { Server, Socket } from "socket.io";
 import { z } from "zod";
 
 import { isAllowedMediaUrl, isVoiceMediaUrl } from "./media";
+import type { CallItem, CallUser } from "./callBackend";
+
+export type CallAcknowledgement =
+  | {
+      ok: true;
+      data: {
+        call: CallItem | null;
+        authToken?: string;
+        meetingId?: string;
+        participantId?: string;
+        expiresAt?: string;
+        caller?: CallUser;
+        participants?: CallUser[];
+        invitedUserIds?: string[];
+        groupCall?: boolean;
+        guest?: boolean;
+      };
+    }
+  | { ok: false; error: string };
+type CallCommand = (
+  payload: unknown,
+  acknowledge?: (result: CallAcknowledgement) => void,
+) => void;
+interface CallUpdate {
+  call: CallItem;
+  participants?: CallUser[];
+  invitedUserIds?: string[];
+  groupCall?: boolean;
+  participantUserId?: string;
+  invitationEnded?: boolean;
+  left?: boolean;
+}
 
 export const messageSendSchema = z
   .object({
@@ -110,6 +142,12 @@ export type ConversationVisibilityAcknowledgement =
   | { success: false; error: string };
 
 export interface ClientToServerEvents {
+  "call:invite": CallCommand;
+  "call:accept": CallCommand;
+  "call:decline": CallCommand;
+  "call:end": CallCommand;
+  "call:video-enabled": CallCommand;
+  "call:sync": CallCommand;
   "message:send": (
     payload: unknown,
     acknowledge?: (result: MessageSendAcknowledgement) => void,
@@ -137,6 +175,18 @@ export interface ClientToServerEvents {
 }
 
 export interface ServerToClientEvents {
+  "call:incoming": (
+    event: CallUpdate & {
+      caller: CallUser;
+      expiresAt: string;
+      guest?: boolean;
+    },
+  ) => void;
+  "call:accepted": (event: CallUpdate) => void;
+  "call:declined": (event: CallUpdate) => void;
+  "call:missed": (event: CallUpdate) => void;
+  "call:ended": (event: CallUpdate) => void;
+  "call:ringing-timeout": (event: { call: CallItem }) => void;
   "friend:request": (event: FriendRequestEvent) => void;
   "message:new": (message: TextMessagePayload) => void;
   "message:status": (status: MessageStatusPayload) => void;

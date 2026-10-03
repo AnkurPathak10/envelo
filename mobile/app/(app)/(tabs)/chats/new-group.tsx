@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { FriendPickerRow } from '@/components/friends/friend-picker-row';
 import { ConversationAvatar } from '@/components/conversations/conversation-avatar';
 import { messagingColors as colors, radius, spacing } from '@/constants/theme';
 import {
@@ -178,33 +179,11 @@ export default function NewGroupScreen() {
           renderItem={({ item }) => {
             const selected = selectedIds.has(item.id);
             return (
-              <Pressable
-                accessibilityLabel={`${selected ? 'Remove' : 'Select'} ${item.displayName}`}
-                accessibilityRole="checkbox"
-                accessibilityState={{ checked: selected }}
+              <FriendPickerRow
+                friend={item}
+                selected={selected}
                 onPress={() => toggleFriend(item)}
-                style={({ pressed }) => [styles.row, pressed && styles.pressed]}
-              >
-                <ConversationAvatar
-                  avatarUrl={item.avatarUrl}
-                  name={item.displayName}
-                  size={44}
-                  userId={item.id}
-                />
-                <View style={styles.person}>
-                  <Text numberOfLines={1} style={styles.name}>
-                    {item.displayName}
-                  </Text>
-                  <Text numberOfLines={1} style={styles.email}>
-                    {item.email}
-                  </Text>
-                </View>
-                <MaterialIcons
-                  color={selected ? c.accentPrimary : c.textMuted}
-                  name={selected ? 'check-circle' : 'radio-button-unchecked'}
-                  size={25}
-                />
-              </Pressable>
+              />
             );
           }}
           style={styles.list}

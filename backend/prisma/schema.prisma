@@ -30,6 +30,7 @@ model User {
   friendRequestsSent     Friendship[]              @relation("FriendRequestsSent")
   friendRequestsReceived Friendship[]              @relation("FriendRequestsReceived")
   pushTokens             PushToken[]
+  callsInitiated         CallLog[]
 }
 
 model PushToken {
@@ -123,6 +124,9 @@ model Conversation {
 
   participants ConversationParticipant[]
   messages     Message[]
+  callLogs     CallLog[]
+
+  realtimeMeetingId String?
 
   directKey String? @unique
 }
@@ -130,6 +134,30 @@ model Conversation {
 enum ConversationType {
   DIRECT
   GROUP
+}
+
+enum CallStatus {
+  RINGING
+  ONGOING
+  COMPLETED
+  MISSED
+  DECLINED
+}
+
+model CallLog {
+  id             String       @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  initiatorId    String
+  initiator      User         @relation(fields: [initiatorId], references: [id])
+  status         CallStatus
+  hadVideo       Boolean      @default(false)
+  startedAt      DateTime     @default(now())
+  connectedAt    DateTime?
+  endedAt        DateTime?
+
+  @@index([conversationId, startedAt, id])
+  @@index([status])
 }
 
 enum ParticipantRole {

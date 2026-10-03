@@ -10,6 +10,7 @@ import {
   retryPendingPushTokenRemovals,
 } from '@/lib/api/push';
 import { useAuth } from '@/lib/auth/AuthContext';
+import { useCall } from '@/lib/calls/CallContext';
 
 if (Platform.OS !== 'web') {
   Notifications.setNotificationHandler({
@@ -43,6 +44,11 @@ async function ensureChannels(): Promise<void> {
       importance: Notifications.AndroidImportance.HIGH,
       sound: 'default',
     }),
+    Notifications.setNotificationChannelAsync('calls', {
+      name: 'Incoming calls',
+      importance: Notifications.AndroidImportance.HIGH,
+      sound: 'default',
+    }),
   ]);
 }
 
@@ -70,6 +76,7 @@ async function registerForPush(
 
 export function PushNotifications() {
   const { user } = useAuth();
+  const { sync: syncCall } = useCall();
   const rootNavigationState = useRootNavigationState();
   const handledResponseId = useRef<string | null>(null);
   const userId = user?.id;
@@ -128,12 +135,16 @@ export function PushNotifications() {
       const data = response.notification.request.content.data;
       // Android reuses a notification ID for the whole chat. A later message
       // in that chat must still be tappable after a previous notification tap.
-      const id = `${response.notification.request.identifier}:${data?.messageId ?? data?.requestId ?? response.notification.date}`;
+      const id = `${response.notification.request.identifier}:${data?.messageId ?? data?.requestId ?? data?.callId ?? response.notification.date}`;
       if (handledResponseId.current === id) return;
       handledResponseId.current = id;
 
       if (data?.recipientUserId === userId) {
-        if (data.type === 'friend_request') {
+        if (data.type === 'incoming_call') {
+          // Push is only a wake-up hint. Never accept a call or trust expired
+          // ringing state from a notification; the server resolves it on sync.
+          void syncCall();
+        } else if (data.type === 'friend_request') {
           router.push('/(app)/(tabs)/profile/requests');
         } else if (
           data.type === 'chat_message' &&
@@ -150,13 +161,23 @@ export function PushNotifications() {
 
     const listener =
       Notifications.addNotificationResponseReceivedListener(handle);
+    const received = Notifications.addNotificationReceivedListener(
+      (notification) => {
+        const data = notification.request.content.data;
+        if (data?.recipientUserId === userId && data.type === 'incoming_call')
+          void syncCall();
+      }
+    );
     void Notifications.getLastNotificationResponseAsync()
       .then((response) => {
         if (response) handle(response);
       })
       .catch((error) => console.warn('Unable to read push response', error));
-    return () => listener.remove();
-  }, [navigationReady, userId]);
+    return () => {
+      listener.remove();
+      received.remove();
+    };
+  }, [navigationReady, syncCall, userId]);
 
   return null;
 }

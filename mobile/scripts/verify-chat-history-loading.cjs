@@ -174,6 +174,17 @@ function renderScreen(overrides, renderSource = source) {
         return { messagingColors: { light: {}, dark: {} }, radius: {} };
       if (id === '@/lib/auth/AuthContext')
         return { useAuth: () => ({ user: { id: 'me' } }) };
+      if (id === '@/lib/calls/CallContext')
+        return { useCall: () => ({ start: noop }) };
+      if (id === '@/lib/calls/useCallHistory')
+        return {
+          useCallHistory: () => ({
+            calls: [],
+            nextCursor: null,
+            error: null,
+            loading: false,
+          }),
+        };
       if (id === '@/lib/theme/useAppColorScheme')
         return { useAppColorScheme: () => 'light' };
       if (id === '@/lib/socket/SocketContext')
